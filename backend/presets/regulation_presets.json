@@ -1,0 +1,160 @@
+{
+  "preset_id": "hk_fsb_2011_b2_default",
+  "preset_version": "1.0.0",
+  "jurisdiction": "Hong Kong",
+  "code": "Code of Practice for Fire Safety in Buildings 2011 (2024 Edition)",
+  "code_short": "FSB 2011 (2024)",
+  "scope": "Part B - Means of Escape",
+  "rule_source": "HK FSB 2011 (2024) Part B, Table B2 + Clause B7.1",
+  "rule_link": "taskrequest/fs_code2011.pdf#page=43",
+  "_source_pages": {
+    "table_b1": "PDF p.34-36",
+    "table_b2": "PDF p.43",
+    "clause_b4": "PDF p.34",
+    "clause_b7": "PDF p.41",
+    "clause_b13": "PDF p.50-52",
+    "clause_b30": "PDF p.50-52"
+  },
+
+  "use_classes": {
+    "1b": "Flats",
+    "1c": "Tenement houses",
+    "2": "Hotels/guesthouses/hostels/dormitories",
+    "3a": "Day care/hospitals",
+    "3b": "Detention/correctional",
+    "4a": "Offices/conference/staff rooms",
+    "4b": "Retail/dining/banking",
+    "5a": "Assembly/entertainment (cinema/theatre/stadia)",
+    "5b": "Libraries/education",
+    "5c": "Transport facilities",
+    "5d": "Public halls/gymnasia/swimming pool",
+    "6a": "Industrial (laundry/lab/factory/kitchen)",
+    "6b": "Warehouses",
+    "6c": "Dangerous goods storage/manufacturing",
+    "7": "Carparks",
+    "8": "Plant rooms/switch rooms/transformer"
+  },
+
+  "table_b1_occupancy_factors": {
+    "1b": [
+      {"accommodation": "Flats - corridor/balcony style serving >=5 units per staircase", "factor": 4.5, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Flats - others", "factor": 9, "factor_type": "area_per_person_m2"}
+    ],
+    "1c": [
+      {"accommodation": "Tenement houses", "factor": 3, "factor_type": "area_per_person_m2"}
+    ],
+    "2": [
+      {"accommodation": "Hotels/guesthouses/hostels etc.", "factor": null, "factor_type": "bedspaces"},
+      {"accommodation": "Dormitories", "factor": 3, "factor_type": "area_per_person_m2"}
+    ],
+    "3a": [
+      {"accommodation": "Day care/nurseries/child care", "factor": 4, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Hospitals - non-patient area", "factor": 9, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Hospitals - patient area", "factor": null, "factor_type": "bedspaces"}
+    ],
+    "3b": [
+      {"accommodation": "Detention/Correctional", "factor": null, "factor_type": "bedspaces"}
+    ],
+    "4a": [
+      {"accommodation": "Offices", "factor": 9, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Board rooms/conference/function rooms", "factor": 10, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Staff rooms", "factor": 9, "factor_type": "area_per_person_m2"}
+    ],
+    "4b": [
+      {"accommodation": "Retail shops/department stores - basement/GF/1F/2F", "factor": 3, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Retail shops - 3F and above", "factor": 4.5, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Markets/supermarkets/showrooms/gold shops", "factor": 2, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Cafe/restaurants/dining/lounges/bars", "factor": 1, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Banking halls (public area)", "factor": 0.5, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Betting halls (public area)", "factor": 0.5, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Public information/service counters (public area)", "factor": 0.5, "factor_type": "area_per_person_m2"}
+    ],
+    "5a": [
+      {"accommodation": "Art galleries/exhibition/museums", "factor": 2, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Cinemas - seating area", "factor": null, "factor_type": "seats"},
+      {"accommodation": "Cinemas - foyer", "factor": 0.5, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Dance floors", "factor": 0.75, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Sports stadia - standing/removable", "factor": 0.5, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Sports stadia - fixed seating", "factor": null, "factor_type": "seats"},
+      {"accommodation": "Sports stadia - bench seating", "factor": 0.45, "factor_type": "bench_length_m_per_person"},
+      {"accommodation": "Indoor sports - sports/activity area", "factor": 10, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Indoor sports - standing/removable", "factor": 0.5, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Indoor sports - fixed seating", "factor": null, "factor_type": "seats"},
+      {"accommodation": "Indoor sports - bench seating", "factor": 0.45, "factor_type": "bench_length_m_per_person"},
+      {"accommodation": "Theatres - seating", "factor": null, "factor_type": "seats"},
+      {"accommodation": "Theatres - foyer", "factor": 0.5, "factor_type": "area_per_person_m2"}
+    ],
+    "5b": [
+      {"accommodation": "Libraries", "factor": 2, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Reading/study rooms", "factor": 1, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Classrooms (non-education ordinance)/lecture rooms", "factor": 2, "factor_type": "area_per_person_m2"}
+    ],
+    "5c": [
+      {"accommodation": "Transport facilities/passenger terminals", "factor": null, "factor_type": "case_by_case"}
+    ],
+    "5d": [
+      {"accommodation": "Public/assembly/conference halls - removable", "factor": 0.5, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Public halls - fixed seating", "factor": null, "factor_type": "seats"},
+      {"accommodation": "Gymnasia", "factor": 3, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Swimming pool (by water surface area)", "factor": 3, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Columbaria", "factor": 2, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Viewing galleries", "factor": 0.5, "factor_type": "area_per_person_m2"}
+    ],
+    "6a": [
+      {"accommodation": "Commercial laundries", "factor": 10, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Commercial laboratories", "factor": 10, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Factories/workshops", "factor": 4.5, "factor_type": "area_per_person_m2"},
+      {"accommodation": "Commercial kitchens", "factor": 4.5, "factor_type": "area_per_person_m2"}
+    ],
+    "6b": [
+      {"accommodation": "Warehouses", "factor": 30, "factor_type": "area_per_person_m2"}
+    ],
+    "6c": [
+      {"accommodation": "Dangerous goods storage/manufacturing", "factor": 30, "factor_type": "area_per_person_m2"}
+    ],
+    "7": [
+      {"accommodation": "Carparks", "factor": 30, "factor_type": "area_per_person_m2"}
+    ],
+    "8": [
+      {"accommodation": "Plant rooms/switch rooms/transformer", "factor": 30, "factor_type": "area_per_person_m2"}
+    ]
+  },
+
+  "table_b2_thresholds": [
+    {"capacity_min": 4,    "capacity_max": 30,   "min_doors": 1,  "min_total_width_mm": 750,   "min_route_width_mm": 1050, "min_width_per_door_mm": 750,  "min_width_per_route_mm": 1050},
+    {"capacity_min": 31,   "capacity_max": 200,  "min_doors": 2,  "min_total_width_mm": 1750,  "min_route_width_mm": 2100, "min_width_per_door_mm": 850,  "min_width_per_route_mm": 1050},
+    {"capacity_min": 201,  "capacity_max": 300,  "min_doors": 2,  "min_total_width_mm": 2500,  "min_route_width_mm": 2500, "min_width_per_door_mm": 1050, "min_width_per_route_mm": 1050},
+    {"capacity_min": 301,  "capacity_max": 500,  "min_doors": 2,  "min_total_width_mm": 3000,  "min_route_width_mm": 3000, "min_width_per_door_mm": 1050, "min_width_per_route_mm": 1050},
+    {"capacity_min": 501,  "capacity_max": 750,  "min_doors": 3,  "min_total_width_mm": 4500,  "min_route_width_mm": 4500, "min_width_per_door_mm": 1200, "min_width_per_route_mm": 1200},
+    {"capacity_min": 751,  "capacity_max": 1000, "min_doors": 4,  "min_total_width_mm": 6000,  "min_route_width_mm": 6000, "min_width_per_door_mm": 1200, "min_width_per_route_mm": 1200},
+    {"capacity_min": 1001, "capacity_max": 1250, "min_doors": 5,  "min_total_width_mm": 7500,  "min_route_width_mm": 7500, "min_width_per_door_mm": 1350, "min_width_per_route_mm": 1350},
+    {"capacity_min": 1251, "capacity_max": 1500, "min_doors": 6,  "min_total_width_mm": 9000,  "min_route_width_mm": 9000, "min_width_per_door_mm": 1350, "min_width_per_route_mm": 1350},
+    {"capacity_min": 1501, "capacity_max": 1750, "min_doors": 7,  "min_total_width_mm": 10500, "min_route_width_mm": 10500,"min_width_per_door_mm": 1500, "min_width_per_route_mm": 1500},
+    {"capacity_min": 1751, "capacity_max": 2000, "min_doors": 8,  "min_total_width_mm": 12000, "min_route_width_mm": 12000,"min_width_per_door_mm": 1500, "min_width_per_route_mm": 1500},
+    {"capacity_min": 2001, "capacity_max": 2250, "min_doors": 9,  "min_total_width_mm": 13500, "min_route_width_mm": 13500,"min_width_per_door_mm": 1500, "min_width_per_route_mm": 1500},
+    {"capacity_min": 2251, "capacity_max": 2500, "min_doors": 10, "min_total_width_mm": 15000, "min_route_width_mm": 15000,"min_width_per_door_mm": 1500, "min_width_per_route_mm": 1500},
+    {"capacity_min": 2501, "capacity_max": 2750, "min_doors": 11, "min_total_width_mm": 16500, "min_route_width_mm": 16500,"min_width_per_door_mm": 1500, "min_width_per_route_mm": 1500},
+    {"capacity_min": 2751, "capacity_max": 3000, "min_doors": 12, "min_total_width_mm": 18000, "min_route_width_mm": 18000,"min_width_per_door_mm": 1500, "min_width_per_route_mm": 1500},
+    {"capacity_min": 3001, "capacity_max": null, "min_doors": null, "min_total_width_mm": null, "min_route_width_mm": null, "min_width_per_door_mm": null, "min_width_per_route_mm": null, "note": "Building Authority case-by-case approval"}
+  ],
+
+  "absolute_minimums": {
+    "clause_b13_4": {
+      "applies_when": "capacity > 3",
+      "min_door_width_mm": 750,
+      "min_double_leaf_panel_mm": 600,
+      "note": "Any exit door of room/storey with capacity>3 shall be >=750mm; double-leaf door each leaf >=600mm; rebated door shall have checking device"
+    },
+    "clause_b30_3": {
+      "applies_when": "door to temporary refuge space",
+      "min_clear_width_mm": 850,
+      "note": "Take the larger of Table B2 requirement and 850mm; door handle height 950-1050mm"
+    }
+  },
+
+  "table_b2_applicability": {
+    "min_capacity": 4,
+    "note": "Table B2 applies only when occupant_capacity > 3 (Clause B7.1). capacity<=3 falls back to Clause B13.4 absolute minimum 750mm.",
+    "clear_width_definition": "least clear width measured between the vertical members of the door frame (Table B2 Note 2)"
+  }
+}

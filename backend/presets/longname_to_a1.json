@@ -1,0 +1,197 @@
+{
+  "version": "1.1.0",
+  "description": "IfcSpace.LongName keyword -> HK Table A1 Use Class mapping. LongName is lowercased and checked for keyword substring match. First match wins (order matters: more specific first). v1.1 adds Revit abbreviation coverage (LAB/PHARM/X-RAY/ELEC/CONSULT/ADMIN/CUBICLE etc.) based on Clinic sample diagnosis.",
+  "match_algorithm": "lowercase_contains_first_match",
+  "mapping": [
+    {
+      "keywords": ["banking hall", "banking", "betting hall", "service counter", "public information"],
+      "use_class": "4b",
+      "accommodation": "Banking halls (public area)",
+      "factor": 0.5,
+      "factor_type": "area_per_person_m2",
+      "confidence": "high"
+    },
+    {
+      "keywords": ["x-ray", "xray", "radiology", "imaging", "fundus camera", "ultrasound", "mri", "ct scan"],
+      "use_class": "3a",
+      "accommodation": "Hospitals - non-patient area",
+      "factor": 9,
+      "factor_type": "area_per_person_m2",
+      "confidence": "high",
+      "note": "Medical imaging/exam rooms -> hospital non-patient area"
+    },
+    {
+      "keywords": ["pharm", "dispensary", "immuniz", "vaccin", "dipc"],
+      "use_class": "3a",
+      "accommodation": "Hospitals - non-patient area",
+      "factor": 9,
+      "factor_type": "area_per_person_m2",
+      "confidence": "high",
+      "note": "Pharmacy/dispensary/immunization -> hospital non-patient area"
+    },
+    {
+      "keywords": ["lab", "laboratory"],
+      "use_class": "6a",
+      "accommodation": "Commercial laboratories",
+      "factor": 10,
+      "factor_type": "area_per_person_m2",
+      "confidence": "high",
+      "note": "LAB/Laboratory -> 6a commercial laboratory. 'lab' substring also matches 'laboratory' consistently."
+    },
+    {
+      "keywords": ["dining", "restaurant", "cafe", "café", "lounge", "bar ", "food court", "canteen", "break room"],
+      "use_class": "4b",
+      "accommodation": "Cafe/restaurants/dining/lounges/bars",
+      "factor": 1,
+      "factor_type": "area_per_person_m2",
+      "confidence": "high"
+    },
+    {
+      "keywords": ["retail", "shop", "store", "boutique", "showroom", "market", "supermarket"],
+      "use_class": "4b",
+      "accommodation": "Retail shops",
+      "factor": 3,
+      "factor_type": "area_per_person_m2",
+      "confidence": "medium",
+      "note": "Factor 3 assumes basement/GF/1F/2F; 3F+ should be 4.5, user can override"
+    },
+    {
+      "keywords": ["office"],
+      "use_class": "4a",
+      "accommodation": "Offices",
+      "factor": 9,
+      "factor_type": "area_per_person_m2",
+      "confidence": "high"
+    },
+    {
+      "keywords": ["off.", "admin", "cubicle", "provider", "analyst", "work station", "workstation", "rmo", "bmet", "tech. work", "interaction station", "team interaction", "group i", "supv", "sys. analyst"],
+      "use_class": "4a",
+      "accommodation": "Offices",
+      "factor": 9,
+      "factor_type": "area_per_person_m2",
+      "confidence": "medium",
+      "note": "Office-like work spaces including Revit abbreviations (OFF./ADMIN/CUBICLE/PROVIDER/RMO/BMET). Some may be clinical staff areas -> still 4a staff room factor=9."
+    },
+    {
+      "keywords": ["staff room", "staff ", "staff lounge", "staff break"],
+      "use_class": "4a",
+      "accommodation": "Staff rooms",
+      "factor": 9,
+      "factor_type": "area_per_person_m2",
+      "confidence": "high"
+    },
+    {
+      "keywords": ["meeting", "conference", "board room", "function room", "conf.", "group therapy"],
+      "use_class": "4a",
+      "accommodation": "Board rooms/conference/function rooms",
+      "factor": 10,
+      "factor_type": "area_per_person_m2",
+      "confidence": "high"
+    },
+    {
+      "keywords": ["hospital", "clinic", "medical", "ward", "patient", "treatment", "consultation", "consult", "exam", "examination", "surgery", "reception", "physical exam", "opt", "dtr", "developing", "triage", "procedure"],
+      "use_class": "3a",
+      "accommodation": "Hospitals - non-patient area",
+      "factor": 9,
+      "factor_type": "area_per_person_m2",
+      "confidence": "medium",
+      "note": "Medical/clinic rooms -> 3a non-patient area (factor=9). Patient/ward area should use bedspaces; reception in clinic context is registration desk. User override for ward."
+    },
+    {
+      "keywords": ["hotel", "guesthouse", "hostel"],
+      "use_class": "2",
+      "accommodation": "Hotels/guesthouses/hostels etc.",
+      "factor": null,
+      "factor_type": "bedspaces",
+      "confidence": "low",
+      "note": "Requires bedspace count from user; capacity cannot be auto-derived from area alone."
+    },
+    {
+      "keywords": ["living", "bedroom", "master", "apartment", "flat "],
+      "use_class": "1b",
+      "accommodation": "Flats - others",
+      "factor": 9,
+      "factor_type": "area_per_person_m2",
+      "confidence": "high"
+    },
+    {
+      "keywords": ["classroom", "lecture", "reading", "study", "library"],
+      "use_class": "5b",
+      "accommodation": "Classrooms/reading rooms",
+      "factor": 2,
+      "factor_type": "area_per_person_m2",
+      "confidence": "high"
+    },
+    {
+      "keywords": ["gym", "gymnasium", "gymnasia", "sports", "fitness", "swimming", "pool"],
+      "use_class": "5d",
+      "accommodation": "Gymnasia/Swimming pool",
+      "factor": 3,
+      "factor_type": "area_per_person_m2",
+      "confidence": "high"
+    },
+    {
+      "keywords": ["exhibition", "gallery", "museum", "cinema", "theatre", "theater", "dance"],
+      "use_class": "5a",
+      "accommodation": "Assembly/entertainment",
+      "factor": 2,
+      "factor_type": "area_per_person_m2",
+      "confidence": "high"
+    },
+    {
+      "keywords": ["factory", "workshop", "manufacturing", "prosth"],
+      "use_class": "6a",
+      "accommodation": "Factories/workshops",
+      "factor": 4.5,
+      "factor_type": "area_per_person_m2",
+      "confidence": "medium"
+    },
+    {
+      "keywords": ["laundry"],
+      "use_class": "6a",
+      "accommodation": "Commercial laundries",
+      "factor": 10,
+      "factor_type": "area_per_person_m2",
+      "confidence": "medium"
+    },
+    {
+      "keywords": ["warehouse", "storage room", "store room", "cold store", "receiving", "equip. storage", "storage"],
+      "use_class": "6b",
+      "accommodation": "Warehouses",
+      "factor": 30,
+      "factor_type": "area_per_person_m2",
+      "confidence": "medium"
+    },
+    {
+      "keywords": ["parking", "carpark", "car park", "carport"],
+      "use_class": "7",
+      "accommodation": "Carparks",
+      "factor": 30,
+      "factor_type": "area_per_person_m2",
+      "confidence": "high"
+    },
+    {
+      "keywords": ["plant room", "switch room", "transformer", "mechanical room", "mech. room", "mech. penthouse", "penthouse", "boiler", "ahu", "elec", "electrical", "comm. room", "communication", "utilities", "tech.", "ph tech", "bee tech", "wts", "m.e.p.", "mep "],
+      "use_class": "8",
+      "accommodation": "Plant rooms/switch rooms/transformer",
+      "factor": 30,
+      "factor_type": "area_per_person_m2",
+      "confidence": "medium",
+      "note": "Mechanical/electrical/comm rooms -> 8 plant room (factor=30, very low occupancy). 'tech.' here means technician room, not office."
+    }
+  ],
+  "excluded_keywords": [
+    "bath", "toilet", "restroom", "wc ", "washroom", "lavatory",
+    "corridor", "hallway", "passage", "passageway",
+    "lift", "elevator", "lift lobby", "lift shaft",
+    "stair", "staircase", "stairwell", "shaft", "escalator", "ramp", "atrium",
+    "trash", "soil", "utility", "jan", "janitor", "closet", "dress", "locker", "changing",
+    "roof", "open to below", "clean u.", "cleaning", "cleaner",
+    "super", "truss"
+  ],
+  "exclusion_reason": "Usable floor area per FSB Part A excludes stairs, public corridors, lift waiting areas, toilets/WCs, unit kitchens, plant rooms. Janitor closets/dressing/lockers/cleaning rooms are support spaces not counted toward occupant capacity. Roof/open-to-below are non-usable voids.",
+  "ambiguous_unmatched_keywords": [
+    "lobby", "foyer", "hall", "waiting", "entrance", "vestibule", "group is"
+  ],
+  "ambiguous_note": "These keywords are too ambiguous to auto-map. When LongName only contains these keywords, use_class=null and use_class_source=unknown/ambiguous, user must specify in UI."
+}
