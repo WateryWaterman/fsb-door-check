@@ -8,8 +8,11 @@ Swagger:
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .api import routes_check, routes_model, routes_override, routes_presets
 
@@ -21,7 +24,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*", "http://localhost:5173", "http://127.0.0.1:5173", "null"],
+    allow_origins=["*", "http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:8000", "null"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,8 +41,8 @@ def health():
     return {"status": "ok", "service": "fsb-door-check", "version": "0.1.0"}
 
 
-@app.get("/")
-def root():
+@app.get("/api")
+def api_info():
     return {
         "service": "fsb-door-check",
         "docs": "/docs",
@@ -50,6 +53,11 @@ def root():
             "POST /check/{sid}",
             "POST /override/{sid}",
             "GET /presets",
-            "PUT /presets/{sid}",
+            "GET /presets/{sid}",
         ],
     }
+
+
+FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
+if FRONTEND_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
