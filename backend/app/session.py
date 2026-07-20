@@ -21,6 +21,7 @@ class Session:
     result: dict[str, Any]
     overrides: list[dict[str, Any]] = field(default_factory=list)
     preset_overrides: dict[tuple[int, Optional[int]], float] = field(default_factory=dict)
+    custom_threshold_table: Optional[list[dict[str, Any]]] = None
     door_fire_exit_overrides: dict[str, bool] = field(default_factory=dict)
     space_use_overrides: dict[str, str] = field(default_factory=dict)
     space_occupancy_overrides: dict[str, int] = field(default_factory=dict)
@@ -51,6 +52,18 @@ class Session:
 
     def clear_all_preset_overrides(self) -> None:
         self.preset_overrides.clear()
+
+    def get_threshold_table(self) -> list[dict[str, Any]]:
+        if self.custom_threshold_table is not None:
+            return self.custom_threshold_table
+        from .core.presets import load_presets
+        return load_presets()["table_b2_thresholds"]
+
+    def set_custom_threshold_table(self, bands: list[dict[str, Any]]) -> None:
+        self.custom_threshold_table = bands
+
+    def reset_custom_threshold_table(self) -> None:
+        self.custom_threshold_table = None
 
 
 _sessions: dict[str, Session] = {}

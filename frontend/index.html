@@ -30,8 +30,8 @@
     .ctxbar .spacer { flex: 1; }
     .stat-pass { background: #22c55e; color: #fff; }
     .stat-fail { background: #ef4444; color: #fff; }
-    .stat-unknown { background: #eab308; color: #fff; }
-    .stat-overridden { background: #3b82f6; color: #fff; }
+    .stat-nonpassage { background: #8b8b96; color: #fff; }
+    .stat-nonpassage { background: #8b8b96; color: #fff; }
     .main { display: flex; flex: 1; overflow: hidden; }
     .viewer-pane { flex: 1; position: relative; background: #1e293b; }
     #viewerCanvas { width: 100%; height: 100%; display: block; }
@@ -86,8 +86,7 @@
         <div class="stats">
           <span class="stat stat-pass" x-show="summary.by_status.pass">PASS <span x-text="summary.by_status.pass"></span></span>
           <span class="stat stat-fail" x-show="summary.by_status.fail">FAIL <span x-text="summary.by_status.fail"></span></span>
-          <span class="stat stat-unknown" x-show="summary.by_status.unknown">? <span x-text="summary.by_status.unknown"></span></span>
-          <span class="stat stat-overridden" x-show="summary.by_status.overridden">OVR <span x-text="summary.by_status.overridden"></span></span>
+          <span class="stat stat-nonpassage" x-show="summary.by_status.non_passage">N/P <span x-text="summary.by_status.non_passage"></span></span>
         </div>
       </template>
       <label class="btn">
@@ -144,7 +143,7 @@
             <div class="note">checked: <span x-text="summary.checked_doors"></span> · review: <span x-text="summary.needs_review_count"></span></div>
           </template>
         </div>
-        <div class="viewer-hint">Click door to inspect · F=next fail · U=next unknown</div>
+        <div class="viewer-hint">Click door to inspect · F=next fail · U=next non-passage</div>
         <div class="loading-overlay" x-show="loading">
           <div><span x-text="loadingMsg || 'Loading...'"></span></div>
         </div>
@@ -295,9 +294,8 @@
                 <div class="filter-bar">
                   <button :class="{active: filterStatus==='all'}" @click="filterStatus='all'">All (<span x-text="filteredDoors.length"></span>)</button>
                   <button :class="{active: filterStatus==='fail'}" @click="filterStatus='fail'">FAIL (<span x-text="failsList.length"></span>)</button>
-                  <button :class="{active: filterStatus==='unknown'}" @click="filterStatus='unknown'">? (<span x-text="unknownsList.length"></span>)</button>
                   <button :class="{active: filterStatus==='pass'}" @click="filterStatus='pass'">PASS</button>
-                  <button :class="{active: filterStatus==='overridden'}" @click="filterStatus='overridden'">OVR</button>
+                  <button :class="{active: filterStatus==='non_passage'}" @click="filterStatus='non_passage'">N/P (<span x-text="unknownsList.length"></span>)</button>
                   <button :class="{active: filterStatus==='checked'}" @click="filterStatus='checked'">Checked</button>
                   <button :class="{active: filterStatus==='unchecked'}" @click="filterStatus='unchecked'">Unchecked</button>
                   <span x-show="filterStoreyId" style="font-size:10px;color:#6b7280;align-self:center">· filtered by storey</span>
@@ -336,39 +334,37 @@
   </div>
 
   <!-- Threshold Editor Dialog -->
-  <dialog id="thresholdDialog" x-show="thresholdDialogOpen" style="border:1px solid #d1d5db;border-radius:8px;padding:0;max-width:560px;width:90%">
+  <dialog id="thresholdDialog" x-show="thresholdDialogOpen" style="border:1px solid #d1d5db;border-radius:8px;padding:0;max-width:720px;width:95%">
     <div style="padding:16px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
         <h3 style="font-size:14px;font-weight:600">Threshold Editor — Table B2</h3>
         <button @click="closeThresholdDialog()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#6b7280">×</button>
       </div>
-      <div class="note" style="margin-bottom:10px" x-show="!sessionId">Load an IFC file to apply threshold overrides. Defaults are shown below.</div>
+      <div class="note" style="margin-bottom:10px" x-show="!sessionId">Load an IFC file to edit thresholds. Defaults are shown below.</div>
+      <div class="note" style="margin-bottom:10px">Edit capacity ranges and widths, then click <strong>Save All</strong>. The last band must have no upper bound (∞).</div>
       <table class="b2" style="width:100%;font-size:11px">
-        <thead><tr><th>Capacity</th><th>Doors</th><th>Default</th><th>Current</th><th>New (mm)</th><th>Action</th></tr></thead>
+        <thead><tr><th style="width:60px">Cap Min</th><th style="width:60px">Cap Max</th><th style="width:40px">Doors</th><th style="width:60px">Width (mm)</th><th style="width:40px"></th></tr></thead>
         <tbody>
-          <template x-for="row in thrDialogRows" :key="row.capacity_min">
+          <template x-for="(row, idx) in thrDialogRows" :key="idx">
             <tr>
-              <td x-text="row.capacity_max ? row.capacity_min + '-' + row.capacity_max : '>' + row.capacity_min"></td>
-              <td x-text="row.min_doors ?? '—'"></td>
-              <td x-text="row.default_width ?? 'BA'"></td>
-              <td>
-                <span x-text="row.current_width ?? 'BA'" :style="row.is_override ? 'color:#2563eb;font-weight:600' : ''"></span>
-                <span x-show="row.is_override" style="color:#2563eb;font-size:9px"> (override)</span>
-              </td>
-              <td>
-                <input class="num" type="number" min="100" max="5000" style="width:70px" x-model="row.edit_width" :placeholder="String(row.current_width ?? '')" />
-              </td>
-              <td style="white-space:nowrap">
-                <button @click="applyThresholdBand(row)" :disabled="!row.edit_width || !sessionId" style="background:#2563eb;color:#fff;border:none;padding:2px 6px;border-radius:2px;cursor:pointer;font-size:10px" x-show="row.edit_width">Apply</button>
-                <button @click="deleteThresholdBand(row)" :disabled="!row.is_override || !sessionId" style="background:#ef4444;color:#fff;border:none;padding:2px 6px;border-radius:2px;cursor:pointer;font-size:10px;margin-left:2px" x-show="row.is_override">Reset</button>
-              </td>
+              <td><input class="num" type="number" min="3" style="width:56px" x-model.number="row.capacity_min" /></td>
+              <td><input class="num" type="number" style="width:56px" x-model.number="row.capacity_max" :placeholder="idx === thrDialogRows.length - 1 ? '∞' : ''" /></td>
+              <td><input class="num" type="number" min="1" style="width:40px" x-model.number="row.min_doors" placeholder="—" /></td>
+              <td><input class="num" type="number" min="100" max="5000" style="width:64px" x-model.number="row.min_width_per_door_mm" placeholder="mm" /></td>
+              <td><button @click="removeThresholdBand(row)" :disabled="thrDialogRows.length <= 1" style="background:#ef4444;color:#fff;border:none;padding:2px 6px;border-radius:2px;cursor:pointer;font-size:10px">×</button></td>
             </tr>
           </template>
         </tbody>
       </table>
+      <div style="margin-top:8px">
+        <button @click="addThresholdBand()" style="background:#22c55e;color:#fff;border:none;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px">+ Add Band</button>
+      </div>
       <div style="display:flex;justify-content:space-between;margin-top:12px">
-        <button @click="resetAllThresholds()" :disabled="!sessionId" style="background:#6b7280;color:#fff;border:none;padding:6px 12px;border-radius:3px;cursor:pointer;font-size:11px">Reset All to Defaults</button>
-        <button @click="closeThresholdDialog()" style="background:#e5e7eb;color:#374151;border:1px solid #d1d5db;padding:6px 12px;border-radius:3px;cursor:pointer;font-size:11px">Close</button>
+        <button @click="resetAllThresholds()" :disabled="!sessionId" style="background:#6b7280;color:#fff;border:none;padding:6px 12px;border-radius:3px;cursor:pointer;font-size:11px">Reset to Defaults</button>
+        <div style="display:flex;gap:8px">
+          <button @click="closeThresholdDialog()" style="background:#e5e7eb;color:#374151;border:1px solid #d1d5db;padding:6px 12px;border-radius:3px;cursor:pointer;font-size:11px">Cancel</button>
+          <button @click="saveThresholdTable()" :disabled="!sessionId" style="background:#2563eb;color:#fff;border:none;padding:6px 14px;border-radius:3px;cursor:pointer;font-size:11px;font-weight:600">Save All Changes</button>
+        </div>
       </div>
     </div>
   </dialog>

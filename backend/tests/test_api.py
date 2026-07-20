@@ -124,7 +124,7 @@ class TestDoorsAndCheck:
         assert len(data["results"]) == 254
         assert "checked_at" in data
         statuses = {x["status"] for x in data["results"]}
-        assert statuses <= {"pass", "fail", "unknown", "overridden"}
+        assert statuses <= {"pass", "fail", "non_passage"}
 
 
 # ============ 覆盖 ============
@@ -186,9 +186,9 @@ class TestOverride:
         assert len(data["affected_results"]) > 0
         for cr in data["affected_results"]:
             if cr["occupant_capacity"] is not None and 4 <= cr["occupant_capacity"] <= 30:
-                assert cr["status"] == "overridden"
+                assert cr["status"] in ("pass", "fail")
                 assert cr["threshold_mm"] == 2000
-                assert cr["overridden"] is True
+                assert cr["has_threshold_override"] is True
 
     def test_override_invalid_type(self, clinic_session):
         sid = clinic_session["session_id"]

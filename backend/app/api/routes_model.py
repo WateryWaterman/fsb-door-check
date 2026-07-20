@@ -87,6 +87,7 @@ def get_summary(sid: str):
         },
         "summary": r["summary"],
         "overrides": s.overrides,
+        "_custom_threshold_table": s.custom_threshold_table,
     }
 
 

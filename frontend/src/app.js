@@ -22,9 +22,16 @@ window.addEventListener('alpine:init', () => {
     thrEditRowIdx: 0,
     thrEditWidthMm: '',
     exportMsg: null,
+
+    get unknownsList() {
+      let list = this.doors.filter(d => !d.check_result || d.check_result.status === 'non_passage');
+      if (this.filterStoreyId) list = list.filter(d => d.storey_global_id === this.filterStoreyId);
+      list = this._applySearch(list);
+      return list;
+    },
     exportMsgKind: 'info',
     searchQuery: '',
-    highlightFireExit: true,
+    highlightFireExit: false,
     thresholdDialogOpen: false,
     thrDialogRows: [],
 
@@ -66,6 +73,8 @@ window.addEventListener('alpine:init', () => {
         list = list.filter(d => d.is_checked);
       } else if (this.filterStatus === 'unchecked') {
         list = list.filter(d => !d.is_checked);
+      } else if (this.filterStatus === 'non_passage') {
+        list = list.filter(d => !d.check_result || d.check_result.status === 'non_passage');
       } else if (this.filterStatus !== 'all') {
         list = list.filter(d => d.check_result && d.check_result.status === this.filterStatus);
       }
@@ -85,13 +94,6 @@ window.addEventListener('alpine:init', () => {
 
     get failsList() {
       let list = this.doors.filter(d => d.check_result && d.check_result.status === 'fail');
-      if (this.filterStoreyId) list = list.filter(d => d.storey_global_id === this.filterStoreyId);
-      list = this._applySearch(list);
-      return list;
-    },
-
-    get unknownsList() {
-      let list = this.doors.filter(d => d.check_result && d.check_result.status === 'unknown');
       if (this.filterStoreyId) list = list.filter(d => d.storey_global_id === this.filterStoreyId);
       list = this._applySearch(list);
       return list;
@@ -307,19 +309,152 @@ window.addEventListener('alpine:init', () => {
       }
     },
 
-    async applyThresholdEdit() {
-      const row = this.currentThresholdRow;
-      if (!row) return;
-      const w = parseFloat(this.thrEditWidthMm);
-      if (isNaN(w) || w <= 0) {
-        this.error = 'Invalid width (must be a positive number in mm).';
-        return;
+    get defaultThresholdBands() {
+      return (this.presets?.default?.table_b2_thresholds || []).map(r => ({
+        capacity_min: r.capacity_min,
+        capacity_max: r.capacity_max,
+        min_doors: r.min_doors,
+        min_width_per_door_mm: r.min_width_per_door_mm,
+      }));
+    },
+
+    openThresholdDialog() {
+      const defaults = this.defaultThresholdBands;
+      this.thrDialogRows = defaults.map(r => ({
+        capacity_min: r.capacity_min,
+        capacity_max: r.capacity_max,
+        min_doors: r.min_doors,
+        min_width_per_door_mm: r.min_width_per_door_mm,
+        _original: JSON.stringify(r),
+      }));
+      const hasCustom = this.model?.summary?._custom_thresholds;
+      if (this.sessionId && hasCustom) {
+        api.getSummary(this.sessionId).then(s => {}).catch(() => {});
+      }
+      if (this.sessionId) {
+        api.getSummary(this.sessionId).then(s => {
+          const ct = s._custom_threshold_table;
+          if (ct && Array.isArray(ct) && ct.length > 0) {
+            this.thrDialogRows = ct.map(r => ({
+              capacity_min: r.capacity_min,
+              capacity_max: r.capacity_max ?? null,
+              min_doors: r.min_doors ?? null,
+              min_width_per_door_mm: r.min_width_per_door_mm,
+              _original: JSON.stringify(r),
+            }));
+          }
+        }).catch(() => {});
+      }
+      this.$sortThresholdRows();
+      this.thresholdDialogOpen = true;
+      this.$nextTick(() => {
+        const dlg = document.getElementById('thresholdDialog');
+        if (dlg && typeof dlg.showModal === 'function') dlg.showModal();
+      });
+    },
+
+    $sortThresholdRows() {
+      this.thrDialogRows.sort((a, b) => (a.capacity_min || 0) - (b.capacity_min || 0));
+    },
+
+    closeThresholdDialog() {
+      this.thresholdDialogOpen = false;
+      const dlg = document.getElementById('thresholdDialog');
+      if (dlg && dlg.open) dlg.close();
+    },
+
+    addThresholdBand() {
+      const last = this.thrDialogRows[this.thrDialogRows.length - 1];
+      const nextMin = last ? (last.capacity_max ?? last.capacity_min + 100) + 1 : 3;
+      this.thrDialogRows.push({
+        capacity_min: nextMin,
+        capacity_max: null,
+        min_doors: null,
+        min_width_per_door_mm: null,
+        _original: null,
+      });
+      this.$sortThresholdRows();
+    },
+
+    removeThresholdBand(row) {
+      const idx = this.thrDialogRows.indexOf(row);
+      if (idx >= 0) this.thrDialogRows.splice(idx, 1);
+      this.$sortThresholdRows();
+    },
+
+    async saveThresholdTable() {
+      if (!this.sessionId) return;
+      this.$sortThresholdRows();
+      const bands = this.thrDialogRows.map(r => ({
+        capacity_min: parseInt(r.capacity_min, 10),
+        capacity_max: r.capacity_max != null ? parseInt(r.capacity_max, 10) : null,
+        min_doors: r.min_doors != null ? parseInt(r.min_doors, 10) : null,
+        min_width_per_door_mm: r.min_width_per_door_mm != null ? parseFloat(r.min_width_per_door_mm) : null,
+      }));
+      for (const b of bands) {
+        if (isNaN(b.capacity_min) || b.capacity_min < 3) {
+          this.error = `capacity_min must be >= 3 for all bands`;
+          return;
+        }
+        if (b.capacity_max != null && (isNaN(b.capacity_max) || b.capacity_max < b.capacity_min)) {
+          this.error = `capacity_max must be >= capacity_min for all bands`;
+          return;
+        }
+        if (b.min_width_per_door_mm != null && (isNaN(b.min_width_per_door_mm) || b.min_width_per_door_mm <= 0)) {
+          this.error = `min_width_per_door_mm must be a positive number for all bands`;
+          return;
+        }
       }
       this.loading = true;
-      this.loadingMsg = `Applying threshold override (${row.capacity_min}-${row.capacity_max ?? '∞'}) → ${w}mm...`;
+      this.loadingMsg = 'Saving threshold table...';
       try {
-        await this.overrideThreshold(row.capacity_min, row.capacity_max, w);
-        this.thrEditWidthMm = '';
+        const r = await api.saveThresholdTable(this.sessionId, bands);
+        this.model.summary = r.summary || this.model.summary;
+        if (r.affected_results) {
+          for (const nr of r.affected_results) {
+            const d = this.doors.find(x => x.global_id === nr.door_global_id);
+            if (d) d.check_result = nr;
+          }
+        }
+        for (const row of this.thrDialogRows) {
+          row._original = JSON.stringify(row);
+        }
+        this.applyCheckColors();
+        if (this.filterStoreyId) this._focusStoreyInViewer(this.filterStoreyId);
+        else this.viewer.focusDoors([]);
+      } catch (e) {
+        this.error = e.message;
+      } finally {
+        this.loading = false;
+        this.loadingMsg = '';
+      }
+    },
+
+    async resetAllThresholds() {
+      if (!this.sessionId) return;
+      this.loading = true;
+      this.loadingMsg = 'Resetting all thresholds to defaults...';
+      try {
+        const r = await api.resetThresholdTable(this.sessionId);
+        this.model.summary = r.summary || this.model.summary;
+        if (r.affected_results) {
+          for (const nr of r.affected_results) {
+            const d = this.doors.find(x => x.global_id === nr.door_global_id);
+            if (d) d.check_result = nr;
+          }
+        }
+        this.thrDialogRows = this.defaultThresholdBands.map(r => ({
+          capacity_min: r.capacity_min,
+          capacity_max: r.capacity_max,
+          min_doors: r.min_doors,
+          min_width_per_door_mm: r.min_width_per_door_mm,
+          _original: JSON.stringify(r),
+        }));
+        this.applyCheckColors();
+        if (this.filterStoreyId) this._focusStoreyInViewer(this.filterStoreyId);
+        else this.viewer.focusDoors([]);
+      } catch (e) {
+        this.error = e.message;
       } finally {
         this.loading = false;
         this.loadingMsg = '';
@@ -405,7 +540,7 @@ window.addEventListener('alpine:init', () => {
     },
 
     statusLabel(status) {
-      return { pass: 'PASS', fail: 'FAIL', unknown: 'UNKNOWN', overridden: 'OVERRIDE' }[status] || status;
+      return { pass: 'PASS', fail: 'FAIL', non_passage: 'NON-PASSAGE' }[status] || status;
     },
 
     statusColor(status) {
@@ -584,7 +719,7 @@ window.addEventListener('alpine:init', () => {
         measured: 'Measured — the door width used for compliance check (mm). Currently OverallWidth proxy, NOT field-measured clear width',
         deficit: 'Deficit — Threshold minus Measured (mm). Positive = door too narrow (FAIL). Negative = surplus margin',
         needs_review: 'Needs Human Review — true when width_source is not clear_width (OverallWidth is a proxy, not actual clear width) or capacity is unknown. Requires field verification',
-        status: 'Status — pass (meets threshold) | fail (below threshold) | unknown (cannot determine, missing capacity or width) | overridden (user-modified threshold applied)',
+        status: 'Status — pass (meets threshold) | fail (below threshold) | non_passage (cannot determine, non-egress door)',
         rule_clause: 'Rule Clause — the FSB 2011 clause applied: B7.1 (Table B2, capacity>3) | B13.4 (absolute minimum, capacity≤3) | N/A (excluded space)',
         is_checked: 'Checked — manual human review flag. Marks whether a human reviewer has inspected this door. Does not affect compliance calculation',
       };

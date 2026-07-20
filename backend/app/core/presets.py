@@ -43,14 +43,26 @@ def load_longname_map() -> dict[str, Any]:
     return _cache["longname_map"]
 
 
-def table_b2_lookup(capacity: Optional[int]) -> Optional[dict[str, Any]]:
+def table_b2_lookup(capacity: Optional[int], custom_table: Optional[list[dict]] = None) -> Optional[dict[str, Any]]:
     """按 occupant capacity 查 Table B2 档位。
 
     - capacity <= 3 返回 None(Table B2 不适用, 走 Clause B13.4 绝对下限)
     - capacity > 3000 返回最后一档(字段为 null, 表示 BA 个案核定)
     - 否则返回匹配的 row
+
+    custom_table 非空时优先从 custom_table 查找, 找不到再 fallback presets。
     """
     if capacity is None or capacity <= 3:
+        return None
+    if custom_table:
+        for row in custom_table:
+            cmin = row["capacity_min"]
+            cmax = row.get("capacity_max")
+            if cmax is None:
+                if capacity >= cmin:
+                    return row
+            elif cmin <= capacity <= cmax:
+                return row
         return None
     presets = load_presets()
     for row in presets["table_b2_thresholds"]:

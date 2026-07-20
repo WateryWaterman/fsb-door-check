@@ -122,13 +122,13 @@ def _safe_float(v) -> float | None:
 
 def _build_summary(door_results: list[dict[str, Any]]) -> dict[str, Any]:
     total = len(door_results)
-    by_status = {"pass": 0, "fail": 0, "unknown": 0, "overridden": 0}
+    by_status = {"pass": 0, "fail": 0, "non_passage": 0}
     fire_exit_count = 0
     needs_review_count = 0
     fails: list[dict[str, Any]] = []
     for d in door_results:
         cr = d.get("check_result") or {}
-        status = cr.get("status", "unknown")
+        status = cr.get("status", "non_passage")
         if status in by_status:
             by_status[status] += 1
         if d.get("is_fire_exit"):

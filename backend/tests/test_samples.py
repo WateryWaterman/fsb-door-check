@@ -62,7 +62,7 @@ class TestClinic:
     def test_all_doors_have_check_result(self, clinic_result):
         for d in clinic_result["doors"]:
             assert "check_result" in d
-            assert d["check_result"]["status"] in ("pass", "fail", "unknown", "overridden")
+            assert d["check_result"]["status"] in ("pass", "fail", "non_passage")
 
     def test_spaces_have_area(self, clinic_result):
         has_area = sum(1 for s in clinic_result["spaces"] if s["area_m2"] is not None)
@@ -78,7 +78,7 @@ class TestClinic:
 
     def test_summary_consistent(self, clinic_result):
         s = clinic_result["summary"]
-        total = s["by_status"]["pass"] + s["by_status"]["fail"] + s["by_status"]["unknown"] + s["by_status"]["overridden"]
+        total = s["by_status"]["pass"] + s["by_status"]["fail"] + s["by_status"]["non_passage"]
         assert total == s["total_doors"]
 
     def test_print_summary(self, clinic_result):
@@ -95,7 +95,7 @@ class TestDuplex:
 
     def test_all_doors_have_check_result(self, duplex_result):
         for d in duplex_result["doors"]:
-            assert d["check_result"]["status"] in ("pass", "fail", "unknown", "overridden")
+            assert d["check_result"]["status"] in ("pass", "fail", "non_passage")
 
     def test_print_summary(self, duplex_result):
         _print_summary("Duplex_Apartment_IFC2x3", duplex_result)
@@ -110,7 +110,7 @@ class TestSampleHouse:
 
     def test_all_doors_have_check_result(self, samplehouse_result):
         for d in samplehouse_result["doors"]:
-            assert d["check_result"]["status"] in ("pass", "fail", "unknown", "overridden")
+            assert d["check_result"]["status"] in ("pass", "fail", "non_passage")
 
     def test_print_summary(self, samplehouse_result):
         _print_summary("SampleHouse_IFC4", samplehouse_result)
@@ -127,7 +127,7 @@ class TestSnowdon:
         if snowdon_result["counts"]["doors"] == 0:
             pytest.skip("no doors in Snowdon")
         for d in snowdon_result["doors"]:
-            assert d["check_result"]["status"] == "unknown"
+            assert d["check_result"]["status"] == "non_passage"
             assert "capacity" in d["check_result"]["reason"].lower() or "excluded" in d["check_result"]["reason"].lower()
 
     def test_print_summary(self, snowdon_result):
@@ -144,7 +144,7 @@ class TestCrossSample:
             "door_global_id", "preset_id", "rule_source", "rule_clause", "status",
             "threshold_mm", "threshold_source", "measured_mm", "deficit_mm",
             "occupant_capacity", "capacity_source", "width_source",
-            "needs_human_review", "reason", "overridden", "human_review_notes",
+            "needs_human_review", "reason", "has_threshold_override", "human_review_notes",
         }
         for r in [clinic_result, duplex_result, samplehouse_result, snowdon_result]:
             for d in r["doors"]:
@@ -154,7 +154,7 @@ class TestCrossSample:
 
     def test_status_enum_valid(self, clinic_result, duplex_result,
                                samplehouse_result, snowdon_result):
-        valid = {"pass", "fail", "unknown", "overridden"}
+        valid = {"pass", "fail", "non_passage"}
         for r in [clinic_result, duplex_result, samplehouse_result, snowdon_result]:
             for d in r["doors"]:
                 assert d["check_result"]["status"] in valid

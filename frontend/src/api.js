@@ -119,4 +119,26 @@ export const api = {
     }
     return r.json();
   },
+
+  async saveThresholdTable(sessionId, bands) {
+    const r = await fetch(`${API_BASE}/override/${sessionId}/threshold/table`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bands }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || `save threshold table failed (${r.status})`);
+    }
+    return r.json();
+  },
+
+  async resetThresholdTable(sessionId) {
+    const r = await fetch(`${API_BASE}/override/${sessionId}/threshold/table`, { method: 'DELETE' });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || `reset threshold table failed (${r.status})`);
+    }
+    return r.json();
+  },
 };

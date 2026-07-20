@@ -90,9 +90,72 @@ def delete_all_threshold_overrides(sid: str):
         raise HTTPException(status_code=404, detail={
             "error": "session_not_found", "detail": sid})
     s.clear_all_preset_overrides()
+    s.reset_custom_threshold_table()
     affected = _recheck_all_doors(s)
     s.result["summary"] = _rebuild_summary(s.result.get("doors", []))
-    return {"session_id": sid, "cleared_all": True, "affected_results": affected}
+    return {"session_id": sid, "cleared_all": True, "summary": s.result["summary"], "affected_results": affected}
+
+
+class ThresholdTableRequest(BaseModel):
+    bands: list[dict[str, Any]]
+
+
+@router.put("/{sid}/threshold/table")
+def save_threshold_table(sid: str, req: ThresholdTableRequest):
+    s = get_session(sid)
+    if not s:
+        raise HTTPException(status_code=404, detail={
+            "error": "session_not_found", "detail": sid})
+    err = _validate_threshold_bands(req.bands)
+    if err:
+        raise HTTPException(status_code=400, detail={
+            "error": "invalid_threshold_table", "detail": err})
+    s.set_custom_threshold_table(req.bands)
+    s.clear_all_preset_overrides()
+    affected = _recheck_all_doors(s)
+    s.result["summary"] = _rebuild_summary(s.result.get("doors", []))
+    return {"session_id": sid, "bands_saved": len(req.bands), "summary": s.result["summary"], "affected_results": affected}
+
+
+@router.delete("/{sid}/threshold/table")
+def reset_threshold_table(sid: str):
+    s = get_session(sid)
+    if not s:
+        raise HTTPException(status_code=404, detail={
+            "error": "session_not_found", "detail": sid})
+    s.reset_custom_threshold_table()
+    s.clear_all_preset_overrides()
+    affected = _recheck_all_doors(s)
+    s.result["summary"] = _rebuild_summary(s.result.get("doors", []))
+    return {"session_id": sid, "reset_to_defaults": True, "summary": s.result["summary"], "affected_results": affected}
+
+
+def _validate_threshold_bands(bands: list[dict[str, Any]]) -> Optional[str]:
+    if not bands:
+        return "bands list cannot be empty"
+    if not isinstance(bands, list):
+        return "bands must be a list"
+    sorted_bands = sorted(bands, key=lambda b: b.get("capacity_min", 0))
+    for i, b in enumerate(sorted_bands):
+        cmin = b.get("capacity_min")
+        cmax = b.get("capacity_max")
+        width = b.get("min_width_per_door_mm")
+        if not isinstance(cmin, int) or cmin < 3:
+            return f"band {i}: capacity_min must be an integer >= 3, got {cmin}"
+        if cmax is not None and (not isinstance(cmax, int) or cmax < cmin):
+            return f"band {i}: capacity_max must be null or integer >= capacity_min, got {cmax}"
+        if width is not None and (not isinstance(width, (int, float)) or width <= 0):
+            return f"band {i}: min_width_per_door_mm must be a positive number, got {width}"
+        if i == len(sorted_bands) - 1:
+            if cmax is not None:
+                return f"last band {i}: capacity_max must be null (open upper bound)"
+        else:
+            if cmax is None:
+                return f"band {i}: only the last band may have capacity_max=null"
+            next_cmin = sorted_bands[i + 1].get("capacity_min", 0)
+            if cmax + 1 != next_cmin:
+                return f"gap or overlap between band {i} (max={cmax}) and band {i+1} (min={next_cmin})"
+    return None
 
 
 def _override_fire_exit(s: Session, req: OverrideRequest) -> list[dict[str, Any]]:
@@ -188,17 +251,13 @@ def _override_checked(s: Session, req: OverrideRequest) -> list[dict[str, Any]]:
 
 def _recheck_all_doors(s: Session) -> list[dict[str, Any]]:
     affected: list[dict[str, Any]] = []
+    custom_table = s.get_threshold_table()
     for d in s.result.get("doors", []):
         space_gid = d.get("space_global_id")
         space = s.find_space(space_gid) if space_gid else None
         if not space:
             space = {"capacity": None, "capacity_source": "unknown"}
-        override_threshold = _match_preset_override(s, space.get("occupant_capacity"))
-        new_result = check_door(
-            d, space,
-            override_threshold_mm=override_threshold.get("threshold"),
-            override_threshold_source=override_threshold.get("source"),
-        )
+        new_result = check_door(d, space, custom_threshold_table=custom_table)
         d["check_result"] = new_result
         affected.append(new_result)
     return affected
@@ -206,15 +265,11 @@ def _recheck_all_doors(s: Session) -> list[dict[str, Any]]:
 
 def _recheck_doors_of_space(s: Session, space_gid: str, space: dict) -> list[dict[str, Any]]:
     affected: list[dict[str, Any]] = []
+    custom_table = s.get_threshold_table()
     for d in s.result.get("doors", []):
         if d.get("space_global_id") != space_gid:
             continue
-        override_threshold = _match_preset_override(s, space.get("occupant_capacity"))
-        new_result = check_door(
-            d, space,
-            override_threshold_mm=override_threshold.get("threshold"),
-            override_threshold_source=override_threshold.get("source"),
-        )
+        new_result = check_door(d, space, custom_threshold_table=custom_table)
         d["check_result"] = new_result
         affected.append(new_result)
     return affected
@@ -231,13 +286,13 @@ def _match_preset_override(s: Session, capacity) -> dict[str, Any]:
 
 
 def _rebuild_summary(doors: list[dict[str, Any]]) -> dict[str, Any]:
-    by_status = {"pass": 0, "fail": 0, "unknown": 0, "overridden": 0}
+    by_status = {"pass": 0, "fail": 0, "non_passage": 0}
     fire_exit_count = 0
     needs_review_count = 0
     fails: list[dict[str, Any]] = []
     for d in doors:
         cr = d.get("check_result") or {}
-        status = cr.get("status", "unknown")
+        status = cr.get("status", "non_passage")
         if status in by_status:
             by_status[status] += 1
         if d.get("is_fire_exit"):

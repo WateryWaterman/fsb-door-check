@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # ============ 枚举(对齐 CONTRACT.md §5 §6) ============
 
-CheckStatus = str  # "pass" | "fail" | "unknown" | "overridden"
+CheckStatus = str  # "pass" | "fail" | "non_passage"
 WidthSource = str  # "clear_width" | "overall_minus_lining" | "overall_estimate" | "geometry" | "unknown"
 AreaSource = str  # "IfcQuantityArea.NetFloorArea" | ... | "unknown"
 UseClassSource = str  # "Pset_SpaceOccupancyRequirements.OccupancyType" | "longname_keyword" | "excluded" | "ambiguous" | "unknown" | "user_override"
@@ -70,7 +70,7 @@ class CheckResult(BaseModel):
     width_source: str
     needs_human_review: bool
     reason: str
-    overridden: bool = False
+    has_threshold_override: bool = False
     human_review_notes: list[str] = Field(default_factory=list)
 
 

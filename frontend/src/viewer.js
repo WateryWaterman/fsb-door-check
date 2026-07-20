@@ -6,10 +6,9 @@ import * as xeokit from '../lib/xeokit-sdk.es.min.js';
 import * as WebIFC from '../lib/web-ifc-api.js';
 
 const STATUS_COLORS = {
-  pass:       [0.10, 0.50, 0.25],
-  fail:       [0.94, 0.27, 0.27],
-  unknown:    [0.92, 0.70, 0.03],
-  overridden: [0.23, 0.51, 0.97],
+  pass:        [0.10, 0.50, 0.25],
+  fail:        [0.94, 0.27, 0.27],
+  non_passage: [0.55, 0.55, 0.60],
 };
 
 const WASM_PATH = '/lib/';
@@ -384,8 +383,7 @@ export class IfcViewer {
 }
 
 export const STATUS_COLOR_HEX = {
-  pass: '#15803d',
-  fail: '#ef4444',
-  unknown: '#eab308',
-  overridden: '#3b82f6',
+  pass:        '#15803d',
+  fail:        '#ef4444',
+  non_passage: '#8b8b96',
 };
