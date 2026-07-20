@@ -22,8 +22,9 @@ def check_door(
 ) -> dict[str, Any]:
     """对单门执行检查, 返回 CheckResult(对齐 CONTRACT.md §3)。
 
-    override_threshold_mm 非空时, 用用户覆盖阈值替代 Table B2/B13.4 计算值,
-    status 标为 overridden(对齐 CONTRACT.md §5.2 着色优先级)。
+    三状态: pass / fail / non_passage。
+    - custom_threshold_table 非空时优先用自定义表查询 (含 capacity<=3 的边界档)
+    - override_threshold_mm 非空时, 用用户单条覆盖阈值替代, has_threshold_override=True
     """
     capacity = space_info.get("capacity")
     measured = door_info.get("measured_width_mm")
@@ -55,9 +56,23 @@ def check_door(
         )
 
     if capacity <= 3:
-        base_threshold = float(get_absolute_minimum_door_width_mm())
-        base_source = "Clause B13.4 (absolute minimum, capacity<=3)"
-        rule_clause = "B13.4"
+        # 默认走 B13.4 绝对最小 750mm; 但若 custom_table 第一档显式覆盖 capacity<=3, 用 custom
+        custom_row = None
+        if custom_threshold_table:
+            for r in custom_threshold_table:
+                cmin = r.get("capacity_min", 0)
+                cmax = r.get("capacity_max")
+                if cmin <= 3 and (cmax is None or cmax >= capacity):
+                    custom_row = r
+                    break
+        if custom_row and custom_row.get("min_width_per_door_mm") is not None:
+            base_threshold = float(custom_row["min_width_per_door_mm"])
+            base_source = f"Custom Table B2 row[{custom_row['capacity_min']}-{custom_row['capacity_max']}] (extends to capacity<=3)"
+            rule_clause = "B7.1"
+        else:
+            base_threshold = float(get_absolute_minimum_door_width_mm())
+            base_source = "Clause B13.4 (absolute minimum, capacity<=3)"
+            rule_clause = "B13.4"
     else:
         row = table_b2_lookup(capacity, custom_table=custom_threshold_table)
         if row is None or row.get("min_width_per_door_mm") is None:

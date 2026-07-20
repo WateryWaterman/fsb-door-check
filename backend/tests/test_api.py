@@ -188,7 +188,6 @@ class TestOverride:
             if cr["occupant_capacity"] is not None and 4 <= cr["occupant_capacity"] <= 30:
                 assert cr["status"] in ("pass", "fail")
                 assert cr["threshold_mm"] == 2000
-                assert cr["has_threshold_override"] is True
 
     def test_override_invalid_type(self, clinic_session):
         sid = clinic_session["session_id"]
@@ -324,6 +323,177 @@ class TestNormalizeAndCleanup:
         r = client.delete("/model/does-not-exist")
         assert r.status_code == 200
         assert r.json()["ok"] is True
+
+
+# ============ Threshold Table CRUD + Batch Checked ============
+
+class TestThresholdTable:
+    @pytest.fixture
+    def clinic_session(self):
+        with open(CLINIC, "rb") as f:
+            r = client.post(
+                "/model/upload",
+                files={"file": ("Clinic_Architectural_IFC2x3.ifc", f, "application/octet-stream")},
+            )
+        return r.json()
+
+    def test_save_threshold_table_valid(self, clinic_session):
+        """PUT /threshold/table with full valid bands → 200, summary returned."""
+        sid = clinic_session["session_id"]
+        # 取默认 presets 的 15 档, 修改第 1 档 width 750→2000
+        presets = client.get("/presets").json()["default"]["table_b2_thresholds"]
+        bands = [dict(r) for r in presets]
+        bands[0]["min_width_per_door_mm"] = 2000
+        r = client.put(f"/override/{sid}/threshold/table", json={"bands": bands})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["bands_saved"] == 15
+        assert "summary" in data
+        assert len(data["affected_results"]) == 254
+        # 4-30 容量的门 threshold 应是 2000
+        for cr in data["affected_results"]:
+            if cr["occupant_capacity"] is not None and 4 <= cr["occupant_capacity"] <= 30:
+                assert cr["threshold_mm"] == 2000
+
+    def test_save_threshold_table_invalid_band(self, clinic_session):
+        """PUT /threshold/table with capacity_min<3 → 400."""
+        sid = clinic_session["session_id"]
+        bands = [{"capacity_min": 1, "capacity_max": 30, "min_width_per_door_mm": 800}]
+        r = client.put(f"/override/{sid}/threshold/table", json={"bands": bands})
+        assert r.status_code == 400
+        assert r.json()["detail"]["error"] == "invalid_threshold_table"
+
+    def test_save_threshold_table_gap_not_allowed(self, clinic_session):
+        """bands 间不允许有 gap → 400."""
+        sid = clinic_session["session_id"]
+        bands = [
+            {"capacity_min": 4, "capacity_max": 30, "min_width_per_door_mm": 800},
+            {"capacity_min": 50, "capacity_max": None, "min_width_per_door_mm": 1000},
+        ]
+        r = client.put(f"/override/{sid}/threshold/table", json={"bands": bands})
+        assert r.status_code == 400
+
+    def test_reset_threshold_table(self, clinic_session):
+        """DELETE /threshold/table → 重置 custom_threshold_table, summary 恢复默认."""
+        sid = clinic_session["session_id"]
+        # 先 PUT 自定义表
+        presets = client.get("/presets").json()["default"]["table_b2_thresholds"]
+        bands = [dict(r) for r in presets]
+        bands[0]["min_width_per_door_mm"] = 2000
+        client.put(f"/override/{sid}/threshold/table", json={"bands": bands})
+        # 再 DELETE 重置
+        r = client.delete(f"/override/{sid}/threshold/table")
+        assert r.status_code == 200
+        assert r.json()["reset_to_defaults"] is True
+        # summary 应反映默认阈值
+        summary = client.get(f"/model/{sid}/summary").json()
+        assert summary["summary"]["total_doors"] == 254
+        # _custom_threshold_table 应是 None
+        assert summary["_custom_threshold_table"] is None
+
+    def test_summary_returns_custom_table(self, clinic_session):
+        """summary 端点返回 _custom_threshold_table 字段."""
+        sid = clinic_session["session_id"]
+        # 默认是 None
+        s1 = client.get(f"/model/{sid}/summary").json()
+        assert s1["_custom_threshold_table"] is None
+        # PUT 自定义表后非 None
+        presets = client.get("/presets").json()["default"]["table_b2_thresholds"]
+        bands = [dict(r) for r in presets]
+        client.put(f"/override/{sid}/threshold/table", json={"bands": bands})
+        s2 = client.get(f"/model/{sid}/summary").json()
+        assert s2["_custom_threshold_table"] is not None
+        assert len(s2["_custom_threshold_table"]) == 15
+
+
+class TestBatchChecked:
+    @pytest.fixture
+    def clinic_session(self):
+        with open(CLINIC, "rb") as f:
+            r = client.post(
+                "/model/upload",
+                files={"file": ("Clinic_Architectural_IFC2x3.ifc", f, "application/octet-stream")},
+            )
+        return r.json()
+
+    def test_batch_checked_true(self, clinic_session):
+        """POST /checked/batch → 批量标记为 checked."""
+        sid = clinic_session["session_id"]
+        gids = [d["global_id"] for d in clinic_session["doors"][:5]]
+        r = client.post(f"/override/{sid}/checked/batch", json={"global_ids": gids, "value": True})
+        assert r.status_code == 200
+        assert r.json()["updated"] == 5
+        # 验证每个门 is_checked=True
+        for gid in gids:
+            d = client.get(f"/doors/{gid}", params={"session": sid}).json()["door"]
+            assert d["is_checked"] is True
+
+    def test_batch_checked_empty_list(self, clinic_session):
+        """空 global_ids → updated=0."""
+        sid = clinic_session["session_id"]
+        r = client.post(f"/override/{sid}/checked/batch", json={"global_ids": [], "value": True})
+        assert r.status_code == 200
+        assert r.json()["updated"] == 0
+
+    def test_batch_checked_nonexistent_gid(self, clinic_session):
+        """不存在的 gid → updated=0 (不报错)."""
+        sid = clinic_session["session_id"]
+        r = client.post(f"/override/{sid}/checked/batch", json={"global_ids": ["FAKE_GID"], "value": True})
+        assert r.status_code == 200
+        assert r.json()["updated"] == 0
+
+
+# ============ capacity<=3 + custom_table 边界 ============
+
+class TestCapacityLe3CustomTable:
+    """断点式 UI 第一个断点边界问题: 用户设 capacity<=3 的档时, custom_table 应优先于 B13.4."""
+
+    def _make_door(self, capacity, width_mm=800):
+        return {
+            "global_id": "test_door_001",
+            "measured_width_mm": width_mm,
+            "width_source": "overall_estimate",
+        }
+
+    def _make_space(self, capacity, source="auto_area_calc"):
+        return {"capacity": capacity, "capacity_source": source}
+
+    def test_default_capacity_2_uses_b13_4(self):
+        """无 custom_table 时, capacity=2 走 B13.4 → threshold=750."""
+        from app.core.rule_engine import check_door
+        d = self._make_door(2, width_mm=800)
+        s = self._make_space(2)
+        r = check_door(d, s)
+        assert r["threshold_mm"] == 750.0
+        assert r["rule_clause"] == "B13.4"
+        assert r["status"] == "pass"
+
+    def test_custom_table_covers_capacity_le3(self):
+        """custom_table 第一档 cmin<=3 时, capacity=2 用 custom."""
+        from app.core.rule_engine import check_door
+        d = self._make_door(2, width_mm=800)
+        s = self._make_space(2)
+        custom = [
+            {"capacity_min": 3, "capacity_max": 30, "min_width_per_door_mm": 900},
+            {"capacity_min": 31, "capacity_max": None, "min_width_per_door_mm": 1500},
+        ]
+        r = check_door(d, s, custom_threshold_table=custom)
+        assert r["threshold_mm"] == 900.0
+        assert r["rule_clause"] == "B7.1"
+        assert "Custom Table B2" in r["threshold_source"]
+
+    def test_custom_table_first_band_above_3_falls_back_to_b13_4(self):
+        """custom_table 第一档 cmin>=4 时, capacity=2 仍走 B13.4."""
+        from app.core.rule_engine import check_door
+        d = self._make_door(2, width_mm=800)
+        s = self._make_space(2)
+        custom = [
+            {"capacity_min": 4, "capacity_max": 30, "min_width_per_door_mm": 900},
+            {"capacity_min": 31, "capacity_max": None, "min_width_per_door_mm": 1500},
+        ]
+        r = check_door(d, s, custom_threshold_table=custom)
+        assert r["threshold_mm"] == 750.0
+        assert r["rule_clause"] == "B13.4"
 
 
 if __name__ == "__main__":

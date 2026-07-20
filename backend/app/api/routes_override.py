@@ -71,25 +71,13 @@ def batch_checked(sid: str, req: BatchCheckedRequest):
     return {"session_id": sid, "updated": count}
 
 
-@router.delete("/{sid}/threshold")
-def delete_threshold_override(sid: str, cmin: int, cmax: Optional[int] = None):
-    s = get_session(sid)
-    if not s:
-        raise HTTPException(status_code=404, detail={
-            "error": "session_not_found", "detail": sid})
-    s.clear_preset_override(cmin, cmax)
-    affected = _recheck_all_doors(s)
-    s.result["summary"] = _rebuild_summary(s.result.get("doors", []))
-    return {"session_id": sid, "deleted": {"capacity_min": cmin, "capacity_max": cmax}, "affected_results": affected}
-
-
 @router.delete("/{sid}/threshold/all")
 def delete_all_threshold_overrides(sid: str):
+    """DEPRECATED: 旧单条阈值覆盖清理入口, 等价于 reset_threshold_table。保留向后兼容。"""
     s = get_session(sid)
     if not s:
         raise HTTPException(status_code=404, detail={
             "error": "session_not_found", "detail": sid})
-    s.clear_all_preset_overrides()
     s.reset_custom_threshold_table()
     affected = _recheck_all_doors(s)
     s.result["summary"] = _rebuild_summary(s.result.get("doors", []))
@@ -111,7 +99,6 @@ def save_threshold_table(sid: str, req: ThresholdTableRequest):
         raise HTTPException(status_code=400, detail={
             "error": "invalid_threshold_table", "detail": err})
     s.set_custom_threshold_table(req.bands)
-    s.clear_all_preset_overrides()
     affected = _recheck_all_doors(s)
     s.result["summary"] = _rebuild_summary(s.result.get("doors", []))
     return {"session_id": sid, "bands_saved": len(req.bands), "summary": s.result["summary"], "affected_results": affected}
@@ -124,7 +111,6 @@ def reset_threshold_table(sid: str):
         raise HTTPException(status_code=404, detail={
             "error": "session_not_found", "detail": sid})
     s.reset_custom_threshold_table()
-    s.clear_all_preset_overrides()
     affected = _recheck_all_doors(s)
     s.result["summary"] = _rebuild_summary(s.result.get("doors", []))
     return {"session_id": sid, "reset_to_defaults": True, "summary": s.result["summary"], "affected_results": affected}
@@ -199,6 +185,12 @@ def _override_occupancy(s: Session, req: OverrideRequest) -> list[dict[str, Any]
 
 
 def _override_threshold(s: Session, req: OverrideRequest) -> list[dict[str, Any]]:
+    """单条阈值覆盖 — 合并入 custom_threshold_table 后整体重算。
+
+    向后兼容: 旧前端 POST /override {type:"threshold"} 仍可用,
+    内部转成 custom_threshold_table 中对应档位更新。
+    """
+    import copy
     to = req.value
     if not isinstance(to, dict) or "capacity_min" not in to or "min_width_per_door_mm" not in to:
         raise HTTPException(status_code=400, detail={
@@ -206,25 +198,21 @@ def _override_threshold(s: Session, req: OverrideRequest) -> list[dict[str, Any]
     cmin = int(to["capacity_min"])
     cmax = to.get("capacity_max")
     new_w = float(to["min_width_per_door_mm"])
-    s.preset_overrides[(cmin, cmax)] = new_w
-    affected: list[dict[str, Any]] = []
-    for d in s.result.get("doors", []):
-        cr = d.get("check_result") or {}
-        cap = cr.get("occupant_capacity")
-        if cap is None:
-            continue
-        upper = cmax if cmax is not None else 999999
-        if cmin <= cap <= upper:
-            space = s.find_space(d.get("space_global_id")) or {
-                "capacity": cap, "capacity_source": cr.get("capacity_source", "unknown")}
-            new_result = check_door(
-                d, space,
-                override_threshold_mm=new_w,
-                override_threshold_source=f"user_override row[{cmin}-{cmax}]",
-            )
-            d["check_result"] = new_result
-            affected.append(new_result)
-    return affected
+    # 深拷贝当前 table (避免污染 presets cache)
+    cur_table = copy.deepcopy(s.get_threshold_table())
+    updated = False
+    for row in cur_table:
+        row_cmin = row.get("capacity_min")
+        row_cmax = row.get("capacity_max")
+        if row_cmin == cmin and ((row_cmax is None and cmax is None) or row_cmax == cmax):
+            row["min_width_per_door_mm"] = new_w
+            updated = True
+            break
+    if not updated:
+        raise HTTPException(status_code=400, detail={
+            "error": "band_not_found", "detail": f"no band capacity_min={cmin} capacity_max={cmax} in current table"})
+    s.set_custom_threshold_table(cur_table)
+    return _recheck_all_doors(s)
 
 
 def _override_storey(s: Session, req: OverrideRequest) -> list[dict[str, Any]]:
@@ -273,16 +261,6 @@ def _recheck_doors_of_space(s: Session, space_gid: str, space: dict) -> list[dic
         d["check_result"] = new_result
         affected.append(new_result)
     return affected
-
-
-def _match_preset_override(s: Session, capacity) -> dict[str, Any]:
-    if capacity is None:
-        return {}
-    for (cmin, cmax), new_w in s.preset_overrides.items():
-        upper = cmax if cmax is not None else 999999
-        if cmin <= capacity <= upper:
-            return {"threshold": new_w, "source": f"user_override row[{cmin}-{cmax}]"}
-    return {}
 
 
 def _rebuild_summary(doors: list[dict[str, Any]]) -> dict[str, Any]:

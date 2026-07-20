@@ -20,7 +20,6 @@ class Session:
     schema: str
     result: dict[str, Any]
     overrides: list[dict[str, Any]] = field(default_factory=list)
-    preset_overrides: dict[tuple[int, Optional[int]], float] = field(default_factory=dict)
     custom_threshold_table: Optional[list[dict[str, Any]]] = None
     door_fire_exit_overrides: dict[str, bool] = field(default_factory=dict)
     space_use_overrides: dict[str, str] = field(default_factory=dict)
@@ -46,12 +45,6 @@ class Session:
             if s.get("global_id") == global_id:
                 return s
         return None
-
-    def clear_preset_override(self, cmin: int, cmax: Optional[int]) -> None:
-        self.preset_overrides.pop((cmin, cmax), None)
-
-    def clear_all_preset_overrides(self) -> None:
-        self.preset_overrides.clear()
 
     def get_threshold_table(self) -> list[dict[str, Any]]:
         if self.custom_threshold_table is not None:

@@ -24,14 +24,8 @@ def get_session_presets(sid: str):
         raise HTTPException(status_code=404, detail={
             "error": "session_not_found", "detail": sid})
     base = load_presets()
-    if s.preset_overrides:
+    if s.custom_threshold_table is not None:
         base = dict(base)
-        table = list(base.get("table_b2_thresholds", []))
-        for (cmin, cmax), new_w in s.preset_overrides.items():
-            for row in table:
-                if row.get("capacity_min") == cmin and row.get("capacity_max") == cmax:
-                    row["min_width_per_door_mm"] = new_w
-                    row["_overridden"] = True
-        base["table_b2_thresholds"] = table
+        base = {**base, "table_b2_thresholds": list(s.custom_threshold_table)}
     base["active_overrides"] = s.overrides
     return base
