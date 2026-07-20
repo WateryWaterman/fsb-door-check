@@ -348,16 +348,17 @@ window.addEventListener('alpine:init', () => {
         breakpoint: r.breakpoint,
         min_doors: r.min_doors,
         min_width_per_door_mm: r.min_width_per_door_mm,
-        _original: JSON.stringify(r),
       }));
       if (this.sessionId) {
         api.getSummary(this.sessionId).then(s => {
           const ct = s._custom_threshold_table;
           if (ct && Array.isArray(ct) && ct.length > 0) {
             this.thrDialogRows = this.$rangesToBreakpoints(ct).map(r => ({
-              ...r,
-              _original: JSON.stringify(r),
+              breakpoint: r.breakpoint,
+              min_doors: r.min_doors,
+              min_width_per_door_mm: r.min_width_per_door_mm,
             }));
+            this.$sortThresholdRows();
           }
         }).catch(() => {});
       }
@@ -388,7 +389,6 @@ window.addEventListener('alpine:init', () => {
         breakpoint: null,
         min_doors: null,
         min_width_per_door_mm: null,
-        _original: null,
       });
       this.$sortThresholdRows();
     },
@@ -425,9 +425,6 @@ window.addEventListener('alpine:init', () => {
             if (d) d.check_result = nr;
           }
         }
-        for (const row of this.thrDialogRows) {
-          row._original = JSON.stringify(row);
-        }
         this.applyCheckColors();
         if (this.filterStoreyId) this._focusStoreyInViewer(this.filterStoreyId);
         else this.viewer.focusDoors([]);
@@ -457,7 +454,6 @@ window.addEventListener('alpine:init', () => {
           breakpoint: r.breakpoint,
           min_doors: r.min_doors,
           min_width_per_door_mm: r.min_width_per_door_mm,
-          _original: JSON.stringify(r),
         }));
         this.applyCheckColors();
         if (this.filterStoreyId) this._focusStoreyInViewer(this.filterStoreyId);
@@ -564,120 +560,6 @@ window.addEventListener('alpine:init', () => {
     ruleLink() {
       if (!this.presets) return '#';
       return this.presets.default.rule_link || '#';
-    },
-
-    openThresholdDialog() {
-      const defaults = this.presets?.default?.table_b2_thresholds || [];
-      this.thrDialogRows = defaults.map(row => ({
-        capacity_min: row.capacity_min,
-        capacity_max: row.capacity_max,
-        min_doors: row.min_doors,
-        default_width: row.min_width_per_door_mm,
-        current_width: row.min_width_per_door_mm,
-        edit_width: '',
-        is_override: false,
-      }));
-      if (this.sessionId) {
-        api.getSummary(this.sessionId).then(s => {
-          const overrides = s.overrides?.filter(o => o.type === 'threshold') || [];
-          for (const ov of overrides) {
-            const v = ov.value || {};
-            const cmin = v.capacity_min;
-            const cmax = v.capacity_max ?? null;
-            const row = this.thrDialogRows.find(r => r.capacity_min === cmin && (r.capacity_max ?? null) === (cmax ?? null));
-            if (row) {
-              row.current_width = v.min_width_per_door_mm;
-              row.is_override = true;
-            }
-          }
-        }).catch(() => {});
-      }
-      this.thresholdDialogOpen = true;
-      this.$nextTick(() => {
-        const dlg = document.getElementById('thresholdDialog');
-        if (dlg && typeof dlg.showModal === 'function') dlg.showModal();
-      });
-    },
-
-    closeThresholdDialog() {
-      this.thresholdDialogOpen = false;
-      const dlg = document.getElementById('thresholdDialog');
-      if (dlg && dlg.open) dlg.close();
-    },
-
-    async applyThresholdBand(row) {
-      const w = parseFloat(row.edit_width);
-      if (isNaN(w) || w <= 0) {
-        this.error = 'Invalid width (must be a positive number in mm).';
-        return;
-      }
-      this.loading = true;
-      this.loadingMsg = `Applying threshold ${row.capacity_min}-${row.capacity_max ?? '∞'} → ${w}mm...`;
-      try {
-        await this.overrideThreshold(row.capacity_min, row.capacity_max, w);
-        row.current_width = w;
-        row.is_override = true;
-        row.edit_width = '';
-      } catch (e) {
-        this.error = e.message;
-      } finally {
-        this.loading = false;
-        this.loadingMsg = '';
-      }
-    },
-
-    async deleteThresholdBand(row) {
-      this.loading = true;
-      this.loadingMsg = `Resetting band ${row.capacity_min}-${row.capacity_max ?? '∞'} to default...`;
-      try {
-        const r = await api.deleteThresholdOverride(this.sessionId, row.capacity_min, row.capacity_max);
-        this.model.summary = r.summary || this.model.summary;
-        if (r.affected_results) {
-          for (const nr of r.affected_results) {
-            const d = this.doors.find(x => x.global_id === nr.door_global_id);
-            if (d) d.check_result = nr;
-          }
-        }
-        row.current_width = row.default_width;
-        row.is_override = false;
-        this.applyCheckColors();
-        if (this.filterStoreyId) this._focusStoreyInViewer(this.filterStoreyId);
-        else this.viewer.focusDoors([]);
-      } catch (e) {
-        this.error = e.message;
-      } finally {
-        this.loading = false;
-        this.loadingMsg = '';
-      }
-    },
-
-    async resetAllThresholds() {
-      if (!this.sessionId) return;
-      this.loading = true;
-      this.loadingMsg = 'Resetting all thresholds to defaults...';
-      try {
-        const r = await api.deleteAllThresholdOverrides(this.sessionId);
-        this.model.summary = r.summary || this.model.summary;
-        if (r.affected_results) {
-          for (const nr of r.affected_results) {
-            const d = this.doors.find(x => x.global_id === nr.door_global_id);
-            if (d) d.check_result = nr;
-          }
-        }
-        for (const row of this.thrDialogRows) {
-          row.current_width = row.default_width;
-          row.is_override = false;
-          row.edit_width = '';
-        }
-        this.applyCheckColors();
-        if (this.filterStoreyId) this._focusStoreyInViewer(this.filterStoreyId);
-        else this.viewer.focusDoors([]);
-      } catch (e) {
-        this.error = e.message;
-      } finally {
-        this.loading = false;
-        this.loadingMsg = '';
-      }
     },
 
     async toggleDoorChecked(door) {
