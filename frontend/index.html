@@ -170,12 +170,14 @@
             </div>
 
             <div class="panel" x-show="presets">
-              <h3>Table B2 — Min Door Width by Capacity</h3>
+              <h3>Table B2 — Min Door Width by Capacity
+                <span x-show="hasCustomThreshold" class="custom-badge">CUSTOM</span>
+              </h3>
               <table class="b2">
                 <thead><tr><th>Capacity</th><th># Doors</th><th>Per door (mm)</th></tr></thead>
                 <tbody>
-                  <template x-for="row in presets?.default?.table_b2_thresholds || []" :key="row.capacity_min">
-                    <tr>
+                  <template x-for="row in activeThresholdBands" :key="row.capacity_min">
+                    <tr :class="{'custom-row': row._custom}">
                       <td x-text="row.capacity_max ? `${row.capacity_min}-${row.capacity_max}` : `>${row.capacity_min}`"></td>
                       <td x-text="row.min_doors ?? '—'"></td>
                       <td x-text="row.min_width_per_door_mm ?? 'BA'"></td>
@@ -183,6 +185,9 @@
                   </template>
                 </tbody>
               </table>
+              <div x-show="hasCustomThreshold" class="note" style="margin-top:6px;color:#b45309;font-size:10px">
+                Currently applying custom threshold table. Click "Edit Thresholds..." to modify or reset.
+              </div>
             </div>
 
             <div class="panel" x-show="presets">
@@ -356,13 +361,23 @@
         </tbody>
       </table>
       <div style="margin-top:8px">
-        <button @click="addThresholdBand()" style="background:#22c55e;color:#fff;border:none;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px">+ Add Breakpoint</button>
+        <button @click="addThresholdBand()" class="btn-thr" style="background:#22c55e;color:#fff;border:none;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px">+ Add Breakpoint</button>
+      </div>
+      <div x-show="thrStatus !== 'idle'" x-transition
+           :style="`margin-top:10px;padding:8px 10px;border-radius:4px;font-size:11px;line-height:1.4;${thrStatus==='saving'?'background:#dbeafe;color:#1e40af;':thrStatus==='saved'?'background:#dcfce7;color:#166534;':'background:#fee2e2;color:#991b1b;'}`">
+        <span x-text="thrStatusMsg"></span>
       </div>
       <div style="display:flex;justify-content:space-between;margin-top:12px">
-        <button @click="resetAllThresholds()" :disabled="!sessionId" style="background:#6b7280;color:#fff;border:none;padding:6px 12px;border-radius:3px;cursor:pointer;font-size:11px">Reset to Defaults</button>
+        <button @click="resetAllThresholds()" class="btn-thr" :disabled="!sessionId || thrStatus==='saving'"
+                style="background:#6b7280;color:#fff;border:none;padding:6px 12px;border-radius:3px;cursor:pointer;font-size:11px">
+          <span x-text="thrStatus==='saving' ? 'Resetting...' : 'Reset to Defaults'"></span>
+        </button>
         <div style="display:flex;gap:8px">
           <button @click="closeThresholdDialog()" style="background:#e5e7eb;color:#374151;border:1px solid #d1d5db;padding:6px 12px;border-radius:3px;cursor:pointer;font-size:11px">Cancel</button>
-          <button @click="saveThresholdTable()" :disabled="!sessionId" style="background:#2563eb;color:#fff;border:none;padding:6px 14px;border-radius:3px;cursor:pointer;font-size:11px;font-weight:600">Save All Changes</button>
+          <button @click="saveThresholdTable()" class="btn-thr" :disabled="!sessionId || thrStatus==='saving'"
+                  style="background:#2563eb;color:#fff;border:none;padding:6px 14px;border-radius:3px;cursor:pointer;font-size:11px;font-weight:600">
+            <span x-text="thrStatus==='saving' ? 'Saving...' : 'Save All Changes'"></span>
+          </button>
         </div>
       </div>
     </div>
@@ -373,6 +388,12 @@
     .term { cursor: help; border-bottom: 1px dotted #9ca3af; }
     .term .tip-icon { color: #9ca3af; font-size: 10px; margin-left: 2px; }
     .term:hover { color: #2563eb; }
+    .btn-thr { transition: transform 0.05s ease-out; }
+    .btn-thr:active { transform: scale(0.96); }
+    .btn-thr:disabled { opacity: 0.6; cursor: wait; }
+    .b2 tr.custom-row { background: #fef3c7; }
+    .b2 tr.custom-row td { font-weight: 600; }
+    .custom-badge { display: inline-block; padding: 1px 5px; border-radius: 2px; background: #f59e0b; color: #fff; font-size: 9px; font-weight: 600; margin-left: 4px; vertical-align: middle; }
     .term:hover .tip-icon { color: #2563eb; }
   </style>
 </body>

@@ -34,6 +34,8 @@ window.addEventListener('alpine:init', () => {
     highlightFireExit: false,
     thresholdDialogOpen: false,
     thrDialogRows: [],
+    thrStatus: 'idle',
+    thrStatusMsg: '',
 
     init() {
       this.$nextTick(() => {
@@ -62,10 +64,10 @@ window.addEventListener('alpine:init', () => {
     },
 
     get hasModel() { return this.model !== null; },
-    get doors() { return this.model ? this.model.doors : []; },
-    get spaces() { return this.model ? this.model.spaces : []; },
-    get storeys() { return this.model ? this.model.storeys : []; },
-    get summary() { return this.model ? this.model.summary : null; },
+    get doors() { return (this.model && this.model.doors) ? this.model.doors : []; },
+    get spaces() { return (this.model && this.model.spaces) ? this.model.spaces : []; },
+    get storeys() { return (this.model && this.model.storeys) ? this.model.storeys : []; },
+    get summary() { return (this.model && this.model.summary) ? this.model.summary : null; },
 
     get filteredDoors() {
       let list = this.doors;
@@ -144,6 +146,7 @@ window.addEventListener('alpine:init', () => {
       this.exportMsg = null;
       try {
         this.model = await api.uploadIfc(file);
+        this.model._custom_threshold_table = null;
         this.sessionId = this.model.session_id;
         this.loadingMsg = 'Loading 3D geometry...';
         const buffer = await file.arrayBuffer();
@@ -314,7 +317,33 @@ window.addEventListener('alpine:init', () => {
         breakpoint: r.capacity_max,
         min_doors: r.min_doors,
         min_width_per_door_mm: r.min_width_per_door_mm,
+        capacity_min: r.capacity_min,
       }));
+    },
+
+    get activeThresholdBands() {
+      const ct = this.model?._custom_threshold_table;
+      if (ct && Array.isArray(ct) && ct.length > 0) {
+        return ct.map(r => ({
+          capacity_min: r.capacity_min,
+          capacity_max: r.capacity_max,
+          min_doors: r.min_doors,
+          min_width_per_door_mm: r.min_width_per_door_mm,
+          _custom: true,
+        }));
+      }
+      return (this.presets?.default?.table_b2_thresholds || []).map(r => ({
+        capacity_min: r.capacity_min,
+        capacity_max: r.capacity_max,
+        min_doors: r.min_doors,
+        min_width_per_door_mm: r.min_width_per_door_mm,
+        _custom: false,
+      }));
+    },
+
+    get hasCustomThreshold() {
+      const ct = this.model?._custom_threshold_table;
+      return Array.isArray(ct) && ct.length > 0;
     },
 
     $rangesToBreakpoints(ranges) {
@@ -343,6 +372,8 @@ window.addEventListener('alpine:init', () => {
     },
 
     openThresholdDialog() {
+      this.thrStatus = 'idle';
+      this.thrStatusMsg = '';
       const defaults = this.defaultThresholdBands;
       this.thrDialogRows = defaults.map(r => ({
         breakpoint: r.breakpoint,
@@ -405,20 +436,25 @@ window.addEventListener('alpine:init', () => {
       for (let i = 0; i < this.thrDialogRows.length; i++) {
         const r = this.thrDialogRows[i];
         if (r.breakpoint != null && (isNaN(r.breakpoint) || r.breakpoint < 3)) {
-          this.error = `breakpoint must be >= 3`;
+          this.thrStatus = 'error';
+          this.thrStatusMsg = `breakpoint must be >= 3 (row ${i + 1})`;
           return;
         }
         if (r.min_width_per_door_mm != null && (isNaN(r.min_width_per_door_mm) || r.min_width_per_door_mm <= 0)) {
-          this.error = `width must be a positive number`;
+          this.thrStatus = 'error';
+          this.thrStatusMsg = `width must be a positive number (row ${i + 1})`;
           return;
         }
       }
       const bands = this.$breakpointsToRanges(this.thrDialogRows);
-      this.loading = true;
-      this.loadingMsg = 'Saving threshold table...';
+      this.thrStatus = 'saving';
+      this.thrStatusMsg = `Saving ${bands.length} bands and rechecking ${this.doors.length} doors...`;
       try {
         const r = await api.saveThresholdTable(this.sessionId, bands);
         this.model.summary = r.summary || this.model.summary;
+        if (r.custom_threshold_table !== undefined && this.model) {
+          this.model._custom_threshold_table = r.custom_threshold_table;
+        }
         if (r.affected_results) {
           for (const nr of r.affected_results) {
             const d = this.doors.find(x => x.global_id === nr.door_global_id);
@@ -428,21 +464,24 @@ window.addEventListener('alpine:init', () => {
         this.applyCheckColors();
         if (this.filterStoreyId) this._focusStoreyInViewer(this.filterStoreyId);
         else this.viewer.focusDoors([]);
+        this.thrStatus = 'saved';
+        this.thrStatusMsg = `Saved. Backend rechecked ${r.rechecked_count ?? r.affected_results?.length ?? 0} doors.`;
       } catch (e) {
-        this.error = e.message;
-      } finally {
-        this.loading = false;
-        this.loadingMsg = '';
+        this.thrStatus = 'error';
+        this.thrStatusMsg = e.message;
       }
     },
 
     async resetAllThresholds() {
       if (!this.sessionId) return;
-      this.loading = true;
-      this.loadingMsg = 'Resetting all thresholds to defaults...';
+      this.thrStatus = 'saving';
+      this.thrStatusMsg = 'Resetting to defaults, rechecking doors...';
       try {
         const r = await api.resetThresholdTable(this.sessionId);
         this.model.summary = r.summary || this.model.summary;
+        if (r.custom_threshold_table !== undefined && this.model) {
+          this.model._custom_threshold_table = r.custom_threshold_table;
+        }
         if (r.affected_results) {
           for (const nr of r.affected_results) {
             const d = this.doors.find(x => x.global_id === nr.door_global_id);
@@ -458,11 +497,11 @@ window.addEventListener('alpine:init', () => {
         this.applyCheckColors();
         if (this.filterStoreyId) this._focusStoreyInViewer(this.filterStoreyId);
         else this.viewer.focusDoors([]);
+        this.thrStatus = 'saved';
+        this.thrStatusMsg = `Reset to defaults. Backend rechecked ${r.rechecked_count ?? r.affected_results?.length ?? 0} doors.`;
       } catch (e) {
-        this.error = e.message;
-      } finally {
-        this.loading = false;
-        this.loadingMsg = '';
+        this.thrStatus = 'error';
+        this.thrStatusMsg = e.message;
       }
     },
 

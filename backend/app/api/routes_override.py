@@ -101,7 +101,12 @@ def save_threshold_table(sid: str, req: ThresholdTableRequest):
     s.set_custom_threshold_table(req.bands)
     affected = _recheck_all_doors(s)
     s.result["summary"] = _rebuild_summary(s.result.get("doors", []))
-    return {"session_id": sid, "bands_saved": len(req.bands), "summary": s.result["summary"], "affected_results": affected}
+    return {
+        "session_id": sid, "bands_saved": len(req.bands),
+        "summary": s.result["summary"], "affected_results": affected,
+        "custom_threshold_table": s.custom_threshold_table,
+        "rechecked_count": len(affected),
+    }
 
 
 @router.delete("/{sid}/threshold/table")
@@ -113,7 +118,12 @@ def reset_threshold_table(sid: str):
     s.reset_custom_threshold_table()
     affected = _recheck_all_doors(s)
     s.result["summary"] = _rebuild_summary(s.result.get("doors", []))
-    return {"session_id": sid, "reset_to_defaults": True, "summary": s.result["summary"], "affected_results": affected}
+    return {
+        "session_id": sid, "reset_to_defaults": True,
+        "summary": s.result["summary"], "affected_results": affected,
+        "custom_threshold_table": None,
+        "rechecked_count": len(affected),
+    }
 
 
 def _validate_threshold_bands(bands: list[dict[str, Any]]) -> Optional[str]:
