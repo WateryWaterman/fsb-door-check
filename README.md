@@ -46,6 +46,42 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 ---
 
+## 更新历史
+
+### 4. viewer UX 改进第二批(commit `7713cd5`)
+
+- **A. Results 搜索框**:Results tab 顶部增加"Search by GlobalId or Name"输入框,实时过滤(忽略大小写,部分匹配),与 status / storey 过滤叠加生效。Clear 按钮一键清空。
+- **B. 修复选中门后状态卡住**:之前 `highlightDoor()` 会强制 `obj.xrayed = false`,导致 PASS 门被选中后丢失透明状态;现在只设 `obj.selected = true`(描边反馈),`xrayed / colorize` 由 `colorizeByStatus()` 唯一控制(runCheck / override 后调用),保持稳定。
+- **C. 防火门高亮切换**(默认 ON):顶部 ctxbar 增 `Fire-exit ON/OFF` 按钮,用 xeokit `obj.highlighted` 通道(红色 0.937/0.267/0.267,alpha 0.6)显示所有 `is_fire_exit=true` 的门。**与 `selected` 描边、`colorize` 染色三通道独立互不冲突**:
+  - 防火门外圈红光环 + 体色显示检查结果
+  - 标记 / 取消防火门后自动重应用
+  - 按钮关掉后切换 fire-exit 不会高亮,按钮重新打开立即应用
+
+- **D. 楼层选中其它楼层淡显**:选中楼层实体保持原状(notXray),其它楼层的 x-ray 透明度 `alpha 0.85 → 0.92`(更淡,几乎只剩轮廓,含边线)。0-door 楼层选中时仍只有该楼层实体显示,门不亮。
+
+### 关键技术修复
+
+- **场景级 material 切换**:发现 xeokit WebIFCLoaderPlugin 加载的实体**没有 entity-level `xrayMaterial`/`highlightMaterial`**,所有 alpha/颜色必须设在 scene 级别。新增 `_setXrayAlpha()` helper,把 `setNonDoorsXrayed / colorizeByStatus / resetDoorColors / focusDoors / focusStorey` 全部统一改用 scene-level `scene.xrayMaterial.alpha = X`。
+
+### 3. viewer UX 改进第一批(commit `83758e1`)
+
+- **门限选**:`obj.pickable = isDoor`,非门要素不可拾取;配合 `_setupPicking` 里对 `_doorIds.has(gid)` 的双保险过滤。
+- **flyTo 拉远**:用 aabb + padding(`max(maxDim*2, 1.5`)替代 `flyTo([obj])`,镜头到门距离约为门尺寸 **7 倍**,既能清晰看见门又有上下文。
+- **楼层聚焦**:新增 `focusStorey(storeyId)`。`IfcBuildingStorey` 不在 `scene.objects`(无 3D 几何),改用 `metaObjects` 索引;新增 `_storeyEntityMap` 收集每个 storey 的全部子实体。
+
+### 2. viewer fallback normalize + 单模型隔离 + 关闭清理(commit `04a1bf3`)
+
+- `POST /model/normalize`:ifcopenshell 重写 STEP,返 octet-stream,作为 web-ifc@0.0.51 解析失败的 fallback。注:此方案对 Duplex_Apartment_IFC2x3.ifc(2011 Revit 导出)无效 — ifcopenshell 保留触发 web-ifc bug 的底层数据结构(web-ifc 0.0.51-0.0.54 全部有此 bug,0.0.55+ 修复但与 xeokit 2.6.112 不兼容)
+- `_destroyCurrentModel()`:加载新模型前 destroy 旧的(避免 SceneModel 残留冲突);unique modelId 防止 id 碰撞
+- `beforeunload` 清理 session;后端启动时 `_cleanup_normalized_dir()`
+
+### 1 viewer IFC 加载修复(commit `73b61c4`)
+
+- xeokit 2.6 `WebIFCLoaderPlugin` 必须显式注入 `{WebIFC, IfcAPI}`,本地化 `web-ifc-api.js` 到 `/lib/`
+- 改 `loadIfcUrl → loadIfcArrayBuffer`(传 ArrayBuffer 而非 blob URL),绕开 blob URL + 缓存破坏参数导致的 `ERR_FILE_NOT_FOUND` bug
+
+---
+
 ## 项目结构
 
 ```
