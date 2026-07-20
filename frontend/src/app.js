@@ -541,8 +541,17 @@ window.addEventListener('alpine:init', () => {
       this.loading = true;
       this.loadingMsg = `Requesting ${format.toUpperCase()} export...`;
       try {
-        await api.exportModel(this.sessionId, format);
-        this.exportMsg = `${format.toUpperCase()} export completed (unexpected — MVP returns 501).`;
+        const blob = await api.exportModel(this.sessionId, format);
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const ext = format === 'json' ? 'json' : format;
+        a.download = `fsb_export_${this.model?.filename || 'model'}.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        this.exportMsg = `${format.toUpperCase()} export downloaded (${(blob.size / 1024).toFixed(1)} KB).`;
         this.exportMsgKind = 'info';
       } catch (e) {
         if (e.status === 501) {

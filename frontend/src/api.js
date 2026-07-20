@@ -84,7 +84,7 @@ export const api = {
       }
       throw new Error(err.detail || `export failed (${r.status})`);
     }
-    return r.json();
+    return r.blob();
   },
 
   async deleteAllThresholdOverrides(sessionId) {

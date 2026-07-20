@@ -349,7 +349,7 @@ class TestEndToEnd:
 
 
 class TestExport:
-    """导出端点 MVP 返回 501(设计文档先行)。"""
+    """导出端点: JSON 已实现, BCF/HTML 返回 501 (设计文档先行)。"""
 
     def test_export_bcf_returns_501(self):
         with open(DUPLEX, "rb") as f:
@@ -366,17 +366,42 @@ class TestExport:
         assert detail["design_doc"] == "docs/EXPORT_DESIGN.md"
         assert "planned_formats" in detail
 
-    def test_export_html_and_json_return_501(self):
+    def test_export_html_returns_501(self):
         with open(DUPLEX, "rb") as f:
             r = client.post(
                 "/model/upload",
                 files={"file": ("Duplex_Apartment_IFC2x3.ifc", f, "application/octet-stream")},
             )
         sid = r.json()["session_id"]
-        for fmt in ("html", "json"):
-            r2 = client.post(f"/export/{sid}", params={"format": fmt})
-            assert r2.status_code == 501, f"{fmt} should return 501"
-            assert r2.json()["detail"]["requested_format"] == fmt
+        r2 = client.post(f"/export/{sid}", params={"format": "html"})
+        assert r2.status_code == 501
+        assert r2.json()["detail"]["requested_format"] == "html"
+
+    def test_export_json_returns_200(self):
+        with open(DUPLEX, "rb") as f:
+            r = client.post(
+                "/model/upload",
+                files={"file": ("Duplex_Apartment_IFC2x3.ifc", f, "application/octet-stream")},
+            )
+        sid = r.json()["session_id"]
+        r2 = client.post(f"/export/{sid}", params={"format": "json"})
+        assert r2.status_code == 200
+        data = r2.json()
+        assert "export_meta" in data
+        assert data["export_meta"]["tool"] == "FSB Door Check MVP"
+        assert "session" in data
+        assert data["session"]["session_id"] == sid
+        assert "regulation" in data
+        assert "table_b2_thresholds" in data["regulation"]
+        assert "summary" in data
+        assert "doors" in data
+        assert len(data["doors"]) == r.json()["counts"]["doors"]
+        assert "field_dictionary" in data
+        assert len(data["field_dictionary"]) > 10
+        first_door = data["doors"][0]
+        assert "related_space" in first_door
+        assert "check_result" in first_door
+        assert "content-disposition" in {k.lower() for k in r2.headers.keys()}
 
     def test_export_invalid_format_returns_400(self):
         with open(DUPLEX, "rb") as f:
