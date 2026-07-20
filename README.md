@@ -48,6 +48,45 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 ## 更新历史
 
+### 11. 阈值弹窗状态机 + 实时反馈(commit `56ad7c8`)
+
+- **状态机**:dialog 内 `thrStatus` (idle/saving/saved/error) + `thrStatusMsg`,Save/Reset 按钮按下立即显示 "Saving..." / "Resetting..." 文字
+- **按钮动画**:`.btn-thr:active { transform: scale(0.96) }` 按下回弹,`:disabled` 半透 + wait 光标
+- **状态框**:dialog 内底部三色提示行(蓝 saving / 绿 saved / 红 error),显示重算门数 `Saved. Backend rechecked 254 doors.`
+- **顶部表格实时反映**:Regulation tab 的 TABLE B2 改用 `activeThresholdBands` getter,自定义行黄底高亮 + `CUSTOM` 徽章
+- 后端 save/reset 响应加 `custom_threshold_table` + `rechecked_count`
+
+### 10. P0/P1 修复 — 死代码清理 + 断点边界 + 测试覆盖(commit `db7673e`)
+
+- **P0 死代码清理**:删除 `Session.preset_overrides` 字段、`_match_preset_override`、旧 `DELETE /threshold/{sid}` 端点、`routes_presets.py` 的 `_overridden` 标记;`_override_threshold` 重写为合并 `custom_threshold_table`(深拷贝避免污染 presets cache)
+- **P0 断点边界问题**:rule_engine `capacity<=3` 时,若 `custom_threshold_table` 第一档 `cmin<=3` 显式覆盖,优先用 custom 而非 B13.4;默认仍走 Clause B13.4
+- **P1 状态枚举一致**:全仓 `pass` / `fail` / `non_passage` 三状态对齐
+- **P1 测试覆盖**:新增 `TestThresholdTable` / `TestBatchChecked` / `TestCapacityLe3CustomTable`,86 → **97 passed**
+
+### 9. fsb-dev skill 固化常用脚本(commit `637eb66`)
+
+`.opencode/skills/fsb-dev/scripts/` 下 7 个 ps1 脚本:check-frontend / run-tests / restart-backend / upload-sample / verify-all / status / clear-sessions。AGENTS.md 加 "FSB Door Check 开发" 段落自动触发,替代手动拼接 powershell 多步命令省 token。
+
+### 8. 修阈值弹窗无预设值/Reset 不复原(commit `f009379`)
+
+另一智能体添加新断点式方法(345-471行)但未删除旧区间式方法(569-681行),JS 对象重复键后者覆盖前者,旧 `openThresholdDialog` 用 `capacity_min`/`default_width` 字段,但 HTML 绑定 `breakpoint`/`min_width_per_door_mm` → 字段不匹配 → 空表。修复:删除旧重复方法块。
+
+### 7. 断点式阈值 UI + 状态重构(commit `7d785f4` + `7f8e3fb`,另一智能体)
+
+- **状态重构**:删除 `overridden` 状态,`unknown → non_passage`;三状态 `pass`/`fail`/`non_passage`
+- **Threshold 全功能 CRUD**:Session `custom_threshold_table: list[dict]|None`;`PUT /override/{sid}/threshold/table` 保存全表;`DELETE /override/{sid}/threshold/table` 重置;`_validate_threshold_bands()` 验证无重叠/无缝隙/cmin≥3/末条 max=null
+- **断点式 UI**:用户只填单个容量断点(30, 200, 500...),系统自动拼区间 [3,30] [31,200] [201,500] [501,∞];`$breakpointsToRanges` / `$rangesToBreakpoints` 双向转换
+
+### 6. 7 项 UX 改进(commit `f96f269`)
+
+- **规范链接**:Regulation tab 顶部 "Open code PDF (page 43)" 指向 BD 官方 `bd.gov.hk/.../fs_code2011.pdf#page=43`
+- **阈值覆盖弹窗**:Edit Thresholds... 按钮 + dialog(按容量带编辑/删除/重置)
+- **Tooltips**:Door tab / Results tab 标签 `.term` span + `tooltip(name)` 16 条术语定义
+- **门勾选标记**:后端 `door_checked_overrides` + `POST /checked/batch`;前端 Door tab toggle + Results 每行 checkbox + Checked/Unchecked 过滤 + 批量按钮
+- **门色修正**:PASS 深绿 `[0.10,0.50,0.25]`,全 solid 无 xray
+- **楼层透明**:选中楼层半透 alpha=0.35,门 solid,其他楼层 `visible=false`
+- **runCheck 后重应用楼层过滤**
+
 ### 4. viewer UX 改进第二批(commit `7713cd5`)
 
 - **A. Results 搜索框**:Results tab 顶部增加"Search by GlobalId or Name"输入框,实时过滤(忽略大小写,部分匹配),与 status / storey 过滤叠加生效。Clear 按钮一键清空。
@@ -104,7 +143,7 @@ fsb-door-check/
 │   ├── presets/
 │   │   ├── regulation_presets.json   # Table B1(8 UseClass)+ Table B2(14 档)+ Clause B13.4/B30.3
 │   │   └── longname_to_a1.json       # LongName 关键词→UseClass 映射(含 Revit 缩写)
-│   └── tests/               # 86 测试:presets + samples + api + normalize + export
+│   └── tests/               # 97 测试:presets + samples + api(含 Threshold CRUD/BatchChecked/capacity<=3 边界)+ normalize + export
 └── frontend/                # 纯 HTML + xeokit 2.6 + Alpine.js(无构建步骤)
     ├── index.html           # 左右分栏:左 3D canvas + 右侧栏(Regulation/Door/Results 三 tab)
     ├── src/
@@ -150,13 +189,18 @@ fsb-door-check/
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/model/upload` | 上传 IFC,ifcopenshell 解析,返回 session_id + doors + spaces + summary |
-| GET | `/model/{sid}/summary` | 会话摘要 |
+| GET | `/model/{sid}/summary` | 会话摘要(含 `_custom_threshold_table` 字段) |
 | POST | `/model/normalize` | ifcopenshell 重写 STEP,返回 octet-stream(viewer fallback 用) |
 | DELETE | `/model/{sid}` | 删 session(关闭网页 / 加载新模型时) |
 | GET | `/doors/{gid}?session={sid}` | 单门详情 + 关联空间 + 楼层 |
 | POST | `/check/{sid}` | 运行检查,返回每门 CheckResult + summary |
-| POST | `/override/{sid}` | 覆盖(fire_exit / space_use / occupancy / threshold / storey_sprinkler / storey_entrance) |
+| POST | `/override/{sid}` | 覆盖(fire_exit / space_use / occupancy / threshold / storey_sprinkler / storey_entrance / checked) |
+| POST | `/override/{sid}/checked/batch` | 批量勾选/取消勾选门(`{global_ids, value}`) |
+| PUT | `/override/{sid}/threshold/table` | 保存完整自定义 Table B2 阈值表 |
+| DELETE | `/override/{sid}/threshold/table` | 重置为默认 Table B2 |
+| DELETE | `/override/{sid}/threshold/all` | (deprecated)等价于 reset_threshold_table |
 | GET | `/presets` | 法规预设(Table B1/B2 + Clause B13.4/B30.3 + UseClass 描述) |
+| GET | `/presets/{sid}` | session 当前生效预设(若设过 custom_threshold_table,返回 custom) |
 | POST | `/export/{sid}?format=bcf\|html\|json` | 导出(MVP 返 501 + 设计文档链接) |
 | GET | `/health` | 健康检查 |
 | GET | `/docs` | Swagger UI |
@@ -170,7 +214,9 @@ fsb-door-check/
 - 门宽用 `OverallWidth` 作代理,标 `width_source="overall_estimate"` + `needs_human_review=true`
 - 疏散门用推断(跨空间 + 名字 + 通向楼梯),标 `inferred_fire_exit`
 - 因 `FireExit` 字段 0%,**所有门默认可选取**,UI 让用户手动标记防火门
-- Table B2 起始档 4–30 人(1–3 人档不存在,capacity≤3 用 Clause B13.4 绝对下限 750mm)
+- Table B2 起始档 4–30 人(1–3 人档不存在,capacity≤3 默认用 Clause B13.4 绝对下限 750mm)
+- **capacity≤3 + 自定义表边界**:若用户在断点式 UI 中把第一档 `capacity_min` 设为 ≤3,rule_engine 优先用 custom_threshold_table 而非 B13.4(2026-07-20 修复,见 commit `db7673e`)
+- 三状态枚举:`pass` / `fail` / `non_passage`(原 `unknown` 已重命名,原 `overridden` 已删除,阈值覆盖由 `has_threshold_override` 字段表示)
 - 跨版本:IFC2x3 / IFC4 / IFC4.3 同一套代码
 
 ---
@@ -181,11 +227,19 @@ fsb-door-check/
 cd fsb-door-check/backend
 python -m pytest tests/ -v
 ```
-**86 测试全绿**:
-- `test_presets.py` — Table B1/B2 数据完整性
+**97 测试全绿**(基线,2026-07-20):
+- `test_presets.py` — Table B1/B2 数据完整性 + lookup 边界
 - `test_samples.py` — 4 样本回归(Duplex/Clinic/SampleHouse/Snowdon,跨 IFC2x3/IFC4)
-- `test_api.py` — 15 + 4 + 4 测试:upload/check/override/presets/export(501)/normalize/delete
+- `test_api.py` — upload/check/override/presets/export(501)/normalize/delete + **Threshold Table CRUD** + **BatchChecked** + **capacity<=3 custom_table 边界**
 - `test_samples.py` — GlobalId 唯一性、跨版本兼容
+
+**fsb-dev skill 脚本**(项目根 `.opencode/skills/fsb-dev/`):
+- `check-frontend.ps1` — 三前端 JS node --check
+- `run-tests.ps1` — pytest 97 测试
+- `restart-backend.ps1` — 杀+起 uvicorn + /health
+- `upload-sample.ps1 <name>` — 上传 + check 一键冒烟
+- `verify-all.ps1` — 一键三连(语法+测试+重启)
+- `status.ps1` / `clear-sessions.ps1`
 
 ---
 
