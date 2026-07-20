@@ -291,10 +291,7 @@ window.addEventListener('alpine:init', () => {
 
     _focusStoreyInViewer(storeyGid) {
       if (!this.viewer) return;
-      const doorIds = this.doors
-        .filter(d => d.storey_global_id === storeyGid)
-        .map(d => d.global_id);
-      this.viewer.focusDoors(doorIds);
+      this.viewer.focusStorey(storeyGid);
     },
 
     async exportModel(format) {

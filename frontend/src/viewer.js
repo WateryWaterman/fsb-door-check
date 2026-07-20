@@ -38,6 +38,7 @@ export class IfcViewer {
     this.cameraFlight = this.viewer.cameraFlight;
     this._doorIds = new Set();
     this._storeyIds = new Set();
+    this._storeyEntityMap = {};
     this.onPick = null;
     this._setupPicking();
     this._webIfcApiPromise = null;
@@ -70,6 +71,7 @@ export class IfcViewer {
     }
     this._doorIds = new Set();
     this._storeyIds = new Set();
+    this._storeyEntityMap = {};
   }
 
   async _loadModelBuffer(buffer, { label = 'primary' } = {}) {
@@ -168,6 +170,7 @@ export class IfcViewer {
   _indexDoorsAndStoreys() {
     this._doorIds = new Set();
     this._storeyIds = new Set();
+    this._storeyEntityMap = {};
     const metaScene = this.viewer.metaScene;
     const metaObjects = metaScene ? metaScene.metaObjects : null;
     const objects = this.viewer.scene.objects;
@@ -175,10 +178,31 @@ export class IfcViewer {
       const meta = metaObjects && metaObjects[id];
       if (meta) {
         if (meta.type === 'IfcDoor') this._doorIds.add(id);
-        if (meta.type === 'IfcBuildingStorey') this._storeyIds.add(id);
       }
     }
-    console.log(`[viewer] indexed ${this._doorIds.size} doors, ${this._storeyIds.size} storeys, ${Object.keys(objects).length} total objects`);
+    if (metaObjects) {
+      for (const id in metaObjects) {
+        const m = metaObjects[id];
+        if (m && m.type === 'IfcBuildingStorey') this._storeyIds.add(id);
+      }
+      for (const storeyId of this._storeyIds) {
+        const entitySet = new Set();
+        const collect = (pid) => {
+          entitySet.add(pid);
+          const m = metaObjects[pid];
+          if (m && m.children) {
+            for (const c of m.children) collect(c.id);
+          }
+        };
+        collect(storeyId);
+        this._storeyEntityMap[storeyId] = entitySet;
+      }
+    }
+    for (const id in objects) {
+      const obj = objects[id];
+      obj.pickable = this._doorIds.has(id);
+    }
+    console.log(`[viewer] indexed ${this._doorIds.size} doors, ${this._storeyIds.size} storeys, ${Object.keys(objects).length} total objects; non-doors set non-pickable`);
   }
 
   _setupPicking() {
@@ -191,7 +215,9 @@ export class IfcViewer {
       const hit = this.viewer.scene.pick({ canvasPos: coords });
       if (hit && hit.entity && hit.entity.id) {
         const gid = hit.entity.id;
-        if (this.onPick) this.onPick(gid);
+        if (this._doorIds.has(gid) && this.onPick) {
+          this.onPick(gid);
+        }
       }
     });
   }
@@ -258,9 +284,25 @@ export class IfcViewer {
 
   flyTo(globalId) {
     const obj = this.viewer.scene.objects[globalId];
-    if (obj) {
+    if (!obj) return;
+    const aabb = obj.aabb;
+    if (!aabb) {
       this.viewer.cameraFlight.flyTo([obj]);
+      return;
     }
+    const cx = (aabb[0] + aabb[3]) / 2;
+    const cy = (aabb[1] + aabb[4]) / 2;
+    const cz = (aabb[2] + aabb[5]) / 2;
+    const dx = aabb[3] - aabb[0];
+    const dy = aabb[4] - aabb[1];
+    const dz = aabb[5] - aabb[2];
+    const maxDim = Math.max(dx, dy, dz);
+    const padding = Math.max(maxDim * 2, 1.5);
+    const expanded = [
+      cx - padding, cy - padding, cz - padding,
+      cx + padding, cy + padding, cz + padding,
+    ];
+    this.viewer.cameraFlight.flyTo({ aabb: expanded });
   }
 
   isolateStorey(storeyId) {
@@ -299,11 +341,32 @@ export class IfcViewer {
         }
       } else {
         if (focusSet.size === 0) {
+          obj.xrayed = true;
           if (obj.xrayMaterial) obj.xrayMaterial.alpha = 0.5;
         } else {
           obj.xrayed = true;
           if (obj.xrayMaterial) obj.xrayMaterial.alpha = 0.85;
         }
+      }
+    }
+  }
+
+  focusStorey(storeyId) {
+    if (!storeyId) {
+      this.focusDoors([]);
+      return;
+    }
+    const storeyEntities = this._storeyEntityMap[storeyId] || new Set();
+    const objects = this.viewer.scene.objects;
+    for (const id in objects) {
+      const obj = objects[id];
+      const inStorey = storeyEntities.has(id);
+      const isDoor = this._doorIds.has(id);
+      if (inStorey) {
+        obj.xrayed = false;
+      } else {
+        obj.xrayed = true;
+        if (obj.xrayMaterial) obj.xrayMaterial.alpha = 0.85;
       }
     }
   }
