@@ -107,6 +107,9 @@
         </template>
       </select>
       <span style="color:#6b7280">·</span>
+      <label>Fire-exit:</label>
+      <button class="ctx-btn" :class="{primary: highlightFireExit}" @click="toggleHighlightFireExit()" x-text="highlightFireExit ? 'ON' : 'OFF'"></button>
+      <span style="color:#6b7280">·</span>
       <label>Export:</label>
       <button class="ctx-btn" @click="exportModel('bcf')">BCF</button>
       <button class="ctx-btn" @click="exportModel('html')">HTML</button>
@@ -301,6 +304,10 @@
                   <button :class="{active: filterStatus==='pass'}" @click="filterStatus='pass'">PASS</button>
                   <button :class="{active: filterStatus==='overridden'}" @click="filterStatus='overridden'">OVR</button>
                   <span x-show="filterStoreyId" style="font-size:10px;color:#6b7280;align-self:center">· filtered by storey</span>
+                </div>
+                <div class="filter-bar">
+                  <input type="text" x-model="searchQuery" placeholder="Search by GlobalId or Name..." style="flex:1;padding:4px 8px;border:1px solid #d1d5db;border-radius:3px;font-size:11px" @keydown.enter="$event.target.blur()" />
+                  <button x-show="searchQuery" @click="searchQuery=''" style="padding:4px 8px;border:1px solid #d1d5db;background:#fff;border-radius:3px;font-size:11px;cursor:pointer">Clear</button>
                 </div>
 
                 <div class="panel" x-show="failsList.length === 0 && filterStatus==='all'">

@@ -44,6 +44,11 @@ export class IfcViewer {
     this._webIfcApiPromise = null;
   }
 
+  _setXrayAlpha(alpha) {
+    const m = this.scene && this.scene.xrayMaterial;
+    if (m) m.alpha = alpha;
+  }
+
   async _ensureWebIfcApi() {
     if (this._webIfcApiPromise) {
       return this._webIfcApiPromise;
@@ -232,7 +237,7 @@ export class IfcViewer {
       const obj = objects[id];
       if (!this._doorIds.has(id)) {
         obj.xrayed = true;
-        if (obj.xrayMaterial) obj.xrayMaterial.alpha = alpha;
+        this._setXrayAlpha(alpha);
       } else {
         obj.xrayed = false;
       }
@@ -250,7 +255,7 @@ export class IfcViewer {
       obj.colorize = color;
       if (status === 'pass') {
         obj.xrayed = true;
-        if (obj.xrayMaterial) obj.xrayMaterial.alpha = 0.3;
+        this._setXrayAlpha(0.3);
       } else {
         obj.xrayed = false;
       }
@@ -263,8 +268,22 @@ export class IfcViewer {
       if (obj) {
         obj.colorize = null;
         obj.xrayed = true;
-        if (obj.xrayMaterial) obj.xrayMaterial.alpha = 0.3;
+        this._setXrayAlpha(0.3);
       }
+    }
+  }
+
+  highlightFireExitDoors(fireExitGlobalIds, on) {
+    const fireSet = new Set(fireExitGlobalIds);
+    const scene = this.viewer.scene;
+    if (scene.highlightMaterial) {
+      scene.highlightMaterial.color = [0.937, 0.267, 0.267];
+      scene.highlightMaterial.alpha = 0.6;
+    }
+    for (const id of this._doorIds) {
+      const obj = scene.objects[id];
+      if (!obj) continue;
+      obj.highlighted = on && fireSet.has(id);
     }
   }
 
@@ -272,7 +291,6 @@ export class IfcViewer {
     const obj = this.viewer.scene.objects[globalId];
     if (obj) {
       obj.selected = true;
-      obj.xrayed = false;
     }
   }
 
@@ -337,15 +355,15 @@ export class IfcViewer {
           obj.xrayed = false;
         } else {
           obj.xrayed = true;
-          if (obj.xrayMaterial) obj.xrayMaterial.alpha = 0.15;
+          this._setXrayAlpha(0.15);
         }
       } else {
         if (focusSet.size === 0) {
           obj.xrayed = true;
-          if (obj.xrayMaterial) obj.xrayMaterial.alpha = 0.5;
+          this._setXrayAlpha(0.5);
         } else {
           obj.xrayed = true;
-          if (obj.xrayMaterial) obj.xrayMaterial.alpha = 0.85;
+          this._setXrayAlpha(0.85);
         }
       }
     }
@@ -356,18 +374,13 @@ export class IfcViewer {
       this.focusDoors([]);
       return;
     }
+    this._setXrayAlpha(0.92);
     const storeyEntities = this._storeyEntityMap[storeyId] || new Set();
-    const objects = this.viewer.scene.objects;
+    const objects = this.scene.objects;
     for (const id in objects) {
       const obj = objects[id];
       const inStorey = storeyEntities.has(id);
-      const isDoor = this._doorIds.has(id);
-      if (inStorey) {
-        obj.xrayed = false;
-      } else {
-        obj.xrayed = true;
-        if (obj.xrayMaterial) obj.xrayMaterial.alpha = 0.85;
-      }
+      obj.xrayed = !inStorey;
     }
   }
 

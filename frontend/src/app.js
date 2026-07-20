@@ -23,6 +23,8 @@ window.addEventListener('alpine:init', () => {
     thrEditWidthMm: '',
     exportMsg: null,
     exportMsgKind: 'info',
+    searchQuery: '',
+    highlightFireExit: true,
 
     init() {
       this.$nextTick(() => {
@@ -64,19 +66,39 @@ window.addEventListener('alpine:init', () => {
       if (this.filterStoreyId) {
         list = list.filter(d => d.storey_global_id === this.filterStoreyId);
       }
+      const q = (this.searchQuery || '').trim().toLowerCase();
+      if (q) {
+        list = list.filter(d => {
+          const gid = (d.global_id || '').toLowerCase();
+          const name = (d.name || '').toLowerCase();
+          return gid.includes(q) || name.includes(q);
+        });
+      }
       return list;
     },
 
     get failsList() {
       let list = this.doors.filter(d => d.check_result && d.check_result.status === 'fail');
       if (this.filterStoreyId) list = list.filter(d => d.storey_global_id === this.filterStoreyId);
+      list = this._applySearch(list);
       return list;
     },
 
     get unknownsList() {
       let list = this.doors.filter(d => d.check_result && d.check_result.status === 'unknown');
       if (this.filterStoreyId) list = list.filter(d => d.storey_global_id === this.filterStoreyId);
+      list = this._applySearch(list);
       return list;
+    },
+
+    _applySearch(list) {
+      const q = (this.searchQuery || '').trim().toLowerCase();
+      if (!q) return list;
+      return list.filter(d => {
+        const gid = (d.global_id || '').toLowerCase();
+        const name = (d.name || '').toLowerCase();
+        return gid.includes(q) || name.includes(q);
+      });
     },
 
     get storeyDoorCounts() {
@@ -167,6 +189,18 @@ window.addEventListener('alpine:init', () => {
       if (!this.model) return;
       const results = this.doors.map(d => d.check_result).filter(Boolean);
       this.viewer.colorizeByStatus(results);
+      this._applyFireExitHighlight();
+    },
+
+    _applyFireExitHighlight() {
+      if (!this.viewer) return;
+      const fireGids = this.doors.filter(d => d.is_fire_exit).map(d => d.global_id);
+      this.viewer.highlightFireExitDoors(fireGids, this.highlightFireExit);
+    },
+
+    toggleHighlightFireExit() {
+      this.highlightFireExit = !this.highlightFireExit;
+      this._applyFireExitHighlight();
     },
 
     async runCheck() {
@@ -199,6 +233,7 @@ window.addEventListener('alpine:init', () => {
         });
         door.is_fire_exit = newVal;
         door.fire_exit_source = newVal ? 'user_override' : 'not_fire_exit';
+        this._applyFireExitHighlight();
       } catch (e) {
         this.error = e.message;
       }
