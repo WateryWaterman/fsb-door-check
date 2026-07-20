@@ -311,35 +311,51 @@ window.addEventListener('alpine:init', () => {
 
     get defaultThresholdBands() {
       return (this.presets?.default?.table_b2_thresholds || []).map(r => ({
-        capacity_min: r.capacity_min,
-        capacity_max: r.capacity_max,
+        breakpoint: r.capacity_max,
         min_doors: r.min_doors,
         min_width_per_door_mm: r.min_width_per_door_mm,
       }));
     },
 
+    $rangesToBreakpoints(ranges) {
+      return ranges.map(r => ({
+        breakpoint: r.capacity_max ?? null,
+        min_doors: r.min_doors,
+        min_width_per_door_mm: r.min_width_per_door_mm,
+      }));
+    },
+
+    $breakpointsToRanges(rows) {
+      const sorted = [...rows].sort((a, b) => {
+        const va = a.breakpoint ?? Infinity;
+        const vb = b.breakpoint ?? Infinity;
+        return va - vb;
+      });
+      return sorted.map((r, i) => {
+        const prevBp = i > 0 ? (sorted[i - 1].breakpoint ?? Infinity) : 2;
+        return {
+          capacity_min: prevBp + 1,
+          capacity_max: r.breakpoint ?? null,
+          min_doors: r.min_doors != null ? parseInt(r.min_doors, 10) : null,
+          min_width_per_door_mm: r.min_width_per_door_mm != null ? parseFloat(r.min_width_per_door_mm) : null,
+        };
+      });
+    },
+
     openThresholdDialog() {
       const defaults = this.defaultThresholdBands;
       this.thrDialogRows = defaults.map(r => ({
-        capacity_min: r.capacity_min,
-        capacity_max: r.capacity_max,
+        breakpoint: r.breakpoint,
         min_doors: r.min_doors,
         min_width_per_door_mm: r.min_width_per_door_mm,
         _original: JSON.stringify(r),
       }));
-      const hasCustom = this.model?.summary?._custom_thresholds;
-      if (this.sessionId && hasCustom) {
-        api.getSummary(this.sessionId).then(s => {}).catch(() => {});
-      }
       if (this.sessionId) {
         api.getSummary(this.sessionId).then(s => {
           const ct = s._custom_threshold_table;
           if (ct && Array.isArray(ct) && ct.length > 0) {
-            this.thrDialogRows = ct.map(r => ({
-              capacity_min: r.capacity_min,
-              capacity_max: r.capacity_max ?? null,
-              min_doors: r.min_doors ?? null,
-              min_width_per_door_mm: r.min_width_per_door_mm,
+            this.thrDialogRows = this.$rangesToBreakpoints(ct).map(r => ({
+              ...r,
               _original: JSON.stringify(r),
             }));
           }
@@ -354,7 +370,11 @@ window.addEventListener('alpine:init', () => {
     },
 
     $sortThresholdRows() {
-      this.thrDialogRows.sort((a, b) => (a.capacity_min || 0) - (b.capacity_min || 0));
+      this.thrDialogRows.sort((a, b) => {
+        const va = a.breakpoint ?? Infinity;
+        const vb = b.breakpoint ?? Infinity;
+        return va - vb;
+      });
     },
 
     closeThresholdDialog() {
@@ -364,11 +384,8 @@ window.addEventListener('alpine:init', () => {
     },
 
     addThresholdBand() {
-      const last = this.thrDialogRows[this.thrDialogRows.length - 1];
-      const nextMin = last ? (last.capacity_max ?? last.capacity_min + 100) + 1 : 3;
       this.thrDialogRows.push({
-        capacity_min: nextMin,
-        capacity_max: null,
+        breakpoint: null,
         min_doors: null,
         min_width_per_door_mm: null,
         _original: null,
@@ -385,26 +402,18 @@ window.addEventListener('alpine:init', () => {
     async saveThresholdTable() {
       if (!this.sessionId) return;
       this.$sortThresholdRows();
-      const bands = this.thrDialogRows.map(r => ({
-        capacity_min: parseInt(r.capacity_min, 10),
-        capacity_max: r.capacity_max != null ? parseInt(r.capacity_max, 10) : null,
-        min_doors: r.min_doors != null ? parseInt(r.min_doors, 10) : null,
-        min_width_per_door_mm: r.min_width_per_door_mm != null ? parseFloat(r.min_width_per_door_mm) : null,
-      }));
-      for (const b of bands) {
-        if (isNaN(b.capacity_min) || b.capacity_min < 3) {
-          this.error = `capacity_min must be >= 3 for all bands`;
+      for (let i = 0; i < this.thrDialogRows.length; i++) {
+        const r = this.thrDialogRows[i];
+        if (r.breakpoint != null && (isNaN(r.breakpoint) || r.breakpoint < 3)) {
+          this.error = `breakpoint must be >= 3`;
           return;
         }
-        if (b.capacity_max != null && (isNaN(b.capacity_max) || b.capacity_max < b.capacity_min)) {
-          this.error = `capacity_max must be >= capacity_min for all bands`;
-          return;
-        }
-        if (b.min_width_per_door_mm != null && (isNaN(b.min_width_per_door_mm) || b.min_width_per_door_mm <= 0)) {
-          this.error = `min_width_per_door_mm must be a positive number for all bands`;
+        if (r.min_width_per_door_mm != null && (isNaN(r.min_width_per_door_mm) || r.min_width_per_door_mm <= 0)) {
+          this.error = `width must be a positive number`;
           return;
         }
       }
+      const bands = this.$breakpointsToRanges(this.thrDialogRows);
       this.loading = true;
       this.loadingMsg = 'Saving threshold table...';
       try {
@@ -443,9 +452,9 @@ window.addEventListener('alpine:init', () => {
             if (d) d.check_result = nr;
           }
         }
-        this.thrDialogRows = this.defaultThresholdBands.map(r => ({
-          capacity_min: r.capacity_min,
-          capacity_max: r.capacity_max,
+        const defaults = this.defaultThresholdBands;
+        this.thrDialogRows = defaults.map(r => ({
+          breakpoint: r.breakpoint,
           min_doors: r.min_doors,
           min_width_per_door_mm: r.min_width_per_door_mm,
           _original: JSON.stringify(r),
