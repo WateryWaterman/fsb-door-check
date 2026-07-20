@@ -25,10 +25,10 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 ### 样本
 | 文件 | 用途 | 规模 | web-ifc 兼容 |
 |---|---|---|---|
-| `samples/Duplex_xeokit.ifc` | **演示首选** | 14 门 / 21 空间 | ✓ |
-| `samples/Clinic_Architectural_IFC2x3.ifc` | **功能验证** | 254 门 / 269 空间 / 2586 objects | ✓ |
+| `samples/Clinic_Architectural_IFC2x3.ifc` | **功能验证** | 254 门 / 269 空间 | ✓ |
 | `samples/SampleHouse_IFC4.ifc` | IFC4 路径 | 3 门 / 4 空间 | ✓ |
-| `samples/Duplex_Apartment_IFC2x3.ifc` | 2011 Revit 旧导出 | 14 门 | ✗(web-ifc@0.0.51 兼容性,后端分析仍可用,3D 会显示友好错误) |
+
+> 额外样本见 `samples/README.md`。
 
 ---
 
@@ -126,6 +126,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 fsb-door-check/
 ├── README.md
+├── samples/                # 测试用例（2 个 IFC 样本）
 ├── docs/
 │   ├── PLAN.md              # 初版计划(目标/范围/架构/技术栈/阶段)
 │   ├── SSD.md               # 系统序列图(Mermaid)
@@ -248,7 +249,7 @@ python -m pytest tests/ -v
 | 目录 | 关系 | 说明 |
 |---|---|---|
 | `taskrequest/` | 只读 | 调研文档(法规预设、字段深查、填充率实测、调研报告) |
-| `samples/` | 只读 | 4 个 IFC 样本 + 填充率分析脚本 |
+| `samples/` | 部署用 | 2 个 IFC 样本 (Clinic + SampleHouse) |
 | `research/` | 只读 | IFC 4.3 规范本地副本(用 `ifc-spec-lookup` skill 查) |
 | `AGENTS.md` | 项目指南 | IFC 规范查询规则、网络代理要求 |
 | **`fsb-door-check/`** | **读写** | **本项目,所有实现在此** |
