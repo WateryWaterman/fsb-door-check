@@ -1,0 +1,11 @@
+{
+  "export_meta":     导出时间/工具/版本
+  "session":         会话信息(文件名/IFC版本/计数)
+  "regulation":      法规预设(Table B2全表/B13.4/rule_link + 自定义阈值表)
+  "summary":         统计摘要(pass/fail/non_passage + top_fails)
+  "storeys":         全部楼层
+  "spaces":          全部空间
+  "doors":           全部门(254扇, 每扇内联 related_space + check_result)
+  "overrides":       用户覆盖历史
+  "field_dictionary": 61条字段说明(含义/来源/可能取值)
+}
