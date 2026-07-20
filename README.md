@@ -261,14 +261,22 @@ python -m pytest tests/ -v
 ### 本地开发
 ```powershell
 cd fsb-door-check/backend
-uvicorn app.main:app --host 0.0.0.0 --port 8000
+pip install -r requirements.txt
+python -m app.main
+```
+打开 http://127.0.0.1:8000/
+
+> 端口由环境变量 `PORT` 控制（默认 8000）。`python -m app.main` 内部读取 `os.getenv("PORT", "8000")`。
+
+### Docker
+```powershell
+cd fsb-door-check
+docker build -t fsb-door-check .
+docker run -p 8000:8000 -e PORT=8000 fsb-door-check
 ```
 
-### Docker(规划中)
-Dockerfile + docker-compose 将在后续添加。预计结构:
-- 单容器:Python 3.13 + ifcopenshell + uvicorn,挂载 `frontend/` 静态文件
-- 端口 8000
-- 体积关注:ifcopenshell 依赖较多,镜像约 500MB
+### Railway
+仓库已配置 `railway.json` + `Dockerfile` + `Procfile`。连接 GitHub repo 即可自动部署。`PORT` 由 Railway 自动注入，无需手动设。
 
 ---
 
