@@ -218,13 +218,55 @@ jobs:
 
 ## 5. 环境变量总结
 
+### 5.1 基础变量(必填)
+
 | 在哪里 | 变量 | 值 | 说明 |
 |---|---|---|---|
 | Railway | `PORT` | (Railway 自动注入) | 后端监听端口 |
 | 前端 `api.js` | `API_BASE` | `https://<railway-url>` | 后端 API 基址(硬编码在代码里) |
 | GitHub Action | 无 | — | 前端是纯静态,无环境变量 |
 
-> **没有数据库、没有 API key、没有 OAuth** — 这个项目不需要任何密钥管理。
+### 5.2 邮件报告变量(可选,不配则邮件功能降级)
+
+邮件质检报告功能需要 DeepSeek API(生成 Markdown)+ Resend API(发送邮件)。
+**不配也能跑** — 后端会用纯逻辑降级生成报告,但无法发送邮件(返回 502 + markdown)。
+
+| 变量 | 必填 | 默认值 | 说明 |
+|---|---|---|---|
+| `DEEPSEEK_API_KEY` | 否* | — | DeepSeek API key,用于 LLM 生成 Markdown 质检报告 |
+| `DEEPSEEK_API_BASE` | 否 | `https://api.deepseek.com` | DeepSeek API 基址(可换其它兼容端点) |
+| `DEEPSEEK_MODEL_NAME` | 否 | `deepseek-chat` | 调用的模型名 |
+| `RESEND_API_KEY` | 否* | — | Resend API key,用于发送邮件 |
+| `REPORT_FROM_EMAIL` | 否* | — | 发件人邮箱(需在 Resend 已验证) |
+| `REPORT_EMAIL_SUBJECT_PREFIX` | 否 | `[FSB Door Check]` | 邮件主题前缀 |
+
+> \* 邮件报告实际发送需同时配 `DEEPSEEK_API_KEY` + `RESEND_API_KEY` + `REPORT_FROM_EMAIL`。
+> 只配 DeepSeek 不配 Resend → 报告生成但发不出(502 + markdown 返回)。
+> 都不配 → 用 `_fallback_markdown()` 纯逻辑生成报告(llm_used=false)。
+
+### 5.3 本地开发 — `.env` 文件
+
+后端用 `python-dotenv` 自动加载 `backend/.env`(启动时 `load_dotenv()`)。
+
+```bash
+# 复制模板
+cp fsb-door-check/backend/.env.example fsb-door-check/backend/.env
+# 编辑 .env 填入你的 key
+```
+
+> `.env` 已在 `.gitignore`,不会被提交。`.env.example` 是模板(会被追踪)。
+
+### 5.4 Railway 配置环境变量
+
+Railway → 你的项目 → **Variables** 标签 → 逐个添加:
+```
+DEEPSEEK_API_KEY=sk-xxxxxxxx
+RESEND_API_KEY=re_xxxxxxxx
+REPORT_FROM_EMAIL=onboarding@resend.dev
+```
+
+> Railway 会自动注入这些环境变量到容器,无需 `.env` 文件。
+> `PORT` 由 Railway 自动注入,不要手动设。
 
 ---
 
@@ -238,6 +280,7 @@ jobs:
 - [ ] "Run Check" 按钮能跑出 pass/fail 统计
 - [ ] 点门能显示 Door tab 详情
 - [ ] JSON 导出能下载文件
+- [ ] 邮件报告:配好 env var 后,点 "Email Report" → 输入邮箱 → 收到邮件
 
 ---
 
@@ -308,13 +351,14 @@ app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="fronte
 1. cd fsb-door-check/backend && 创建 Procfile (内容见 §3.1)
 2. git push 到 GitHub
 3. Railway: New Project → 选 repo → Root Directory = fsb-door-check/backend → Deploy
-4. 等 Railway 构建完成,记下 URL (如 https://xxx.up.railway.app)
-5. curl https://xxx.up.railway.app/health 验证后端
-6. 改 frontend/src/api.js 第1行: const API_BASE = 'https://xxx.up.railway.app'
-7. 改 frontend/index.html: 资源路径去掉前导斜杠 (§4.2)
-8. 创建 .github/workflows/deploy-frontend.yml (§4.4)
-9. git commit + push
-10. GitHub Settings → Pages → Source: GitHub Actions
-11. 等 Action 跑完,访问 GitHub Pages URL 验证
-12. 如果全在 Railway 更简单: 跳过 6-11,直接访问 Railway URL
+4. Railway Variables 标签配环境变量 (DEEPSEEK_API_KEY / RESEND_API_KEY / REPORT_FROM_EMAIL, 见 §5.4)
+5. 等 Railway 构建完成,记下 URL (如 https://xxx.up.railway.app)
+6. curl https://xxx.up.railway.app/health 验证后端
+7. 改 frontend/src/api.js 第1行: const API_BASE = 'https://xxx.up.railway.app'
+8. 改 frontend/index.html: 资源路径去掉前导斜杠 (§4.2)
+9. 创建 .github/workflows/deploy-frontend.yml (§4.4)
+10. git commit + push
+11. GitHub Settings → Pages → Source: GitHub Actions
+12. 等 Action 跑完,访问 GitHub Pages URL 验证
+13. 如果全在 Railway 更简单: 跳过 7-12,直接访问 Railway URL
 ```

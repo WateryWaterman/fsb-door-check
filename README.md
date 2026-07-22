@@ -2,7 +2,7 @@
 
 香港《Code of Practice for Fire Safety in Buildings 2011 (2024 Edition)》Part B **门净宽检查 + Occupant Capacity 自动推算** 的 Web 微原型。
 
-> 状态:**已完成 MVP**(2026-07-20)。可运行,86 测试全绿,4 个 IFC 样本端到端验证通过。
+> 状态:**已完成 MVP**(2026-07-22)。可运行,115 测试全绿,JSON 导出 + 邮件质检报告已实现。
 
 ---
 
@@ -16,11 +16,14 @@
 ```powershell
 cd fsb-door-check/backend
 pip install -r requirements.txt
+# 可选: 配置邮件报告功能 (不配也能跑, 邮件功能降级)
+cp .env.example .env  # 然后编辑 .env 填入 API key
 uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 打开 http://127.0.0.1:8000/ ,点 "Load IFC" 加载样本。
 
 **单一端口**:FastAPI 挂载 `frontend/` 静态文件,前后端同源,无 CORS 问题。
+**环境变量**:后端用 `python-dotenv` 自动加载 `backend/.env`(见 `.env.example` 模板)。
 
 ### 样本
 | 文件 | 用途 | 规模 | web-ifc 兼容 |
@@ -35,14 +38,15 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 ## 功能演示流程(≤3 分钟)
 
 1. **加载 IFC**:点 "Load IFC" → 选 `Duplex_xeokit.ifc` → 3D 模型渲染,侧栏显示 14 门 / 21 空间
-2. **Run Check**:点顶部 "Run Check" → 每门按 HK FSB Table B2 + Clause B13.4 检查,3D 中门按 PASS(绿半透明)/ FAIL(红)/ UNKNOWN(黄)/ OVERRIDE(蓝)着色
+2. **Run Check**:点顶部 "Run Check" → 每门按 HK FSB Table B2 + Clause B13.4 检查,3D 中门按 PASS(深绿)/ FAIL(红)/ NON_PASSAGE(灰)着色
 3. **检查门**:点 3D 中的门 → 侧栏 Door tab 显示 GlobalId / OverallWidth / width_source / Fire Exit / 关联空间(UseClass / Capacity / 来源标签)/ 检查结果(规则 / 阈值 / 实测 / 缺口 / needs_human_review)
 4. **标记防火门**:Door tab 勾选 "Mark as fire exit" → 重算
 5. **覆盖空间用途/人数**:Door tab 下拉选 UseClass 或输入人数 → 重算
 6. **阈值编辑器**:Regulation tab → "Threshold Override" 选 Table B2 档位 → 改宽度 → Apply → 全部门重算
 7. **楼层过滤**:顶部 "Storey" 下拉选楼层 → 3D 中该层门突出,其它 x-ray 弱化,Results 列表同步过滤
 8. **键盘导航**:按 `F` 跳下一个 FAIL,`U` 跳下一个 UNKNOWN
-9. **导出**:顶部 "BCF/HTML/JSON" 按钮 → 提示"设计中,见 docs/EXPORT_DESIGN.md"(MVP 阶段返回 501,设计文档先行)
+9. **JSON 导出**:点 "JSON" 按钮 → 浏览器直接下载自包含 JSON 报告(含 field_dictionary)
+10. **邮件报告**:点 "Email Report" → 填收件人邮箱 → LLM 生成 Markdown 质检报告 → 邮件发送(需配 `.env`)
 
 ---
 
@@ -138,13 +142,15 @@ fsb-door-check/
 │   │   ├── api/             # 路由:model / check / override / presets / export
 │   │   ├── core/            # 业务:ifc_loader / space_area / space_use /
 │   │   │                    #      occupant_capacity / door_width / door_space_link /
-│   │   │                    #      fire_exit_infer / rule_engine / pipeline
+│   │   │                    #      fire_exit_infer / rule_engine / pipeline / door_leaf
 │   │   ├── models/schemas.py
 │   │   └── session.py       # 会话内存态 + 覆盖态
 │   ├── presets/
 │   │   ├── regulation_presets.json   # Table B1(8 UseClass)+ Table B2(14 档)+ Clause B13.4/B30.3
 │   │   └── longname_to_a1.json       # LongName 关键词→UseClass 映射(含 Revit 缩写)
-│   └── tests/               # 97 测试:presets + samples + api(含 Threshold CRUD/BatchChecked/capacity<=3 边界)+ normalize + export
+│   ├── .env.example         # 环境变量模板(DeepSeek/Resend, .env 本身被 gitignore)
+│   ├── Procfile             # Railway 部署: web: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+│   └── tests/               # 115 测试:presets + samples + api(含 JSON 导出/邮件报告/Threshold CRUD/BatchChecked/capacity<=3 边界)+ double_leaf + normalize + export
 └── frontend/                # 纯 HTML + xeokit 2.6 + Alpine.js(无构建步骤)
     ├── index.html           # 左右分栏:左 3D canvas + 右侧栏(Regulation/Door/Results 三 tab)
     ├── src/
@@ -202,7 +208,9 @@ fsb-door-check/
 | DELETE | `/override/{sid}/threshold/all` | (deprecated)等价于 reset_threshold_table |
 | GET | `/presets` | 法规预设(Table B1/B2 + Clause B13.4/B30.3 + UseClass 描述) |
 | GET | `/presets/{sid}` | session 当前生效预设(若设过 custom_threshold_table,返回 custom) |
-| POST | `/export/{sid}?format=bcf\|html\|json` | 导出(MVP 返 501 + 设计文档链接) |
+| POST | `/export/{sid}?format=bcf\|html` | 导出 BCF/HTML(MVP 返 501 + 设计文档链接) |
+| POST | `/export/{sid}?format=json` | ✅ 导出 JSON(自包含报告,浏览器直接下载) |
+| POST | `/export/{sid}/email_report` | ✅ 生成 Markdown 质检报告 + 邮件发送(DeepSeek + Resend) |
 | GET | `/health` | 健康检查 |
 | GET | `/docs` | Swagger UI |
 
@@ -228,15 +236,16 @@ fsb-door-check/
 cd fsb-door-check/backend
 python -m pytest tests/ -v
 ```
-**97 测试全绿**(基线,2026-07-20):
+**115 测试全绿**(基线,2026-07-22):
 - `test_presets.py` — Table B1/B2 数据完整性 + lookup 边界
 - `test_samples.py` — 4 样本回归(Duplex/Clinic/SampleHouse/Snowdon,跨 IFC2x3/IFC4)
-- `test_api.py` — upload/check/override/presets/export(501)/normalize/delete + **Threshold Table CRUD** + **BatchChecked** + **capacity<=3 custom_table 边界**
+- `test_api.py` — upload/check/override/presets/export + **JSON 导出** + **邮件报告(5 测试: 404/降级/成功/DeepSeek 失败/带选项)** + **Threshold Table CRUD** + **BatchChecked** + **capacity<=3 custom_table 边界**
+- `test_double_leaf.py` — 双扇门检测 9 测试
 - `test_samples.py` — GlobalId 唯一性、跨版本兼容
 
 **fsb-dev skill 脚本**(项目根 `.opencode/skills/fsb-dev/`):
 - `check-frontend.ps1` — 三前端 JS node --check
-- `run-tests.ps1` — pytest 97 测试
+- `run-tests.ps1` — pytest 115 测试
 - `restart-backend.ps1` — 杀+起 uvicorn + /health
 - `upload-sample.ps1 <name>` — 上传 + check 一键冒烟
 - `verify-all.ps1` — 一键三连(语法+测试+重启)
@@ -278,6 +287,14 @@ docker run -p 8000:8000 -e PORT=8000 fsb-door-check
 ### Railway
 仓库已配置 `railway.json` + `Dockerfile` + `Procfile`。连接 GitHub repo 即可自动部署。`PORT` 由 Railway 自动注入，无需手动设。
 
+**邮件报告环境变量**(Railway → Variables 标签添加,见 `docs/DEPLOYMENT.md` §5):
+```
+DEEPSEEK_API_KEY=sk-xxx
+RESEND_API_KEY=re_xxx
+REPORT_FROM_EMAIL=onboarding@resend.dev
+```
+> 不配也能跑 — 邮件报告功能降级为纯逻辑生成(无法发邮件,返回 502 + markdown)。
+
 ---
 
 ## 技术决策记录
@@ -289,7 +306,7 @@ docker run -p 8000:8000 -e PORT=8000 fsb-door-check
 | 双结构 | 前端 xeokit 读几何 + 后端 ifcopenshell 读关系 | 各取所长,xeokit 擅长渲染,ifcopenshell 擅长关系链 |
 | 门宽代理 | OverallWidth(实测 100%) | ClearWidth / LiningThickness 实测 0%,无法用 |
 | 防火门 | UI 手动标记 + 推断 | Pset_DoorCommon.FireExit 实测 0% |
-| 导出 | 501 + 设计文档先行(BCF>HTML>JSON) | MVP 不实现,但体现"懂行业标准" |
+| 导出 | JSON ✅ 已实现 + Markdown 邮件报告 ✅ | BCF/HTML 501 占位 + 设计文档先行 |
 | normalize fallback | 失败时触发 ifcopenshell 重写 | 零误判,只在真失败时触发 |
 
 ---

@@ -113,6 +113,7 @@
       <button class="ctx-btn" @click="exportModel('bcf')">BCF</button>
       <button class="ctx-btn" @click="exportModel('html')">HTML</button>
       <button class="ctx-btn" @click="exportModel('json')">JSON</button>
+      <button class="ctx-btn" @click="openEmailDialog()">Email Report</button>
       <div class="spacer"></div>
       <button class="ctx-btn" @click="resetView()">Reset View</button>
     </div>
@@ -430,6 +431,37 @@
             <span x-text="thrStatus==='saving' ? 'Saving...' : 'Save All Changes'"></span>
           </button>
         </div>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="emailDialog" x-show="emailDialogOpen" x-cloak>
+    <div style="padding:20px;min-width:360px">
+      <h3 style="font-size:14px;font-weight:600;margin-bottom:12px">Email Quality Report</h3>
+      <div style="margin-bottom:12px">
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px">Recipient Email</label>
+        <input type="email" x-model="emailInput" placeholder="user@example.com"
+               style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:3px;font-size:12px" />
+      </div>
+      <div style="margin-bottom:12px;display:flex;flex-direction:column;gap:6px">
+        <label style="font-size:11px;color:#6b7280;display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="checkbox" x-model="emailFocusFailOnly" /> Focus on FAIL doors only
+        </label>
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:2px">Storey filter (optional)</label>
+        <select x-model="emailStoreyFilter" style="width:100%;padding:4px 6px;border:1px solid #d1d5db;border-radius:3px;font-size:11px">
+          <option value="">All storeys</option>
+          <template x-for="s in storeys" :key="s.global_id">
+            <option :value="s.name" x-text="s.name"></option>
+          </template>
+        </select>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+        <button @click="closeEmailDialog()" :disabled="emailSending"
+                style="background:#e5e7eb;color:#374151;border:1px solid #d1d5db;padding:6px 12px;border-radius:3px;cursor:pointer;font-size:11px">Cancel</button>
+        <button @click="sendEmailReport()" :disabled="emailSending || !emailInput"
+                style="background:#2563eb;color:#fff;border:none;padding:6px 14px;border-radius:3px;cursor:pointer;font-size:11px;font-weight:600">
+          <span x-text="emailSending ? 'Sending...' : 'Send Report'"></span>
+        </button>
       </div>
     </div>
   </dialog>

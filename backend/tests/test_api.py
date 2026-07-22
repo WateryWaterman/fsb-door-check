@@ -637,5 +637,168 @@ class TestCapacityLe3CustomTable:
         assert r["rule_clause"] == "B13.4"
 
 
+# ============ Email Report ============
+
+class TestEmailReport:
+    """POST /export/{sid}/email_report — 质检报告邮件端点。"""
+
+    @pytest.fixture(scope="class")
+    def clinic_checked(self):
+        with open(CLINIC, "rb") as f:
+            r = client.post(
+                "/model/upload",
+                files={"file": ("Clinic_Architectural_IFC2x3.ifc", f, "application/octet-stream")},
+            )
+        sid = r.json()["session_id"]
+        client.post(f"/check/{sid}")
+        return sid
+
+    def test_email_report_session_not_found(self):
+        r = client.post("/export/fake-sid/email_report", json={"email": "test@example.com"})
+        assert r.status_code == 404
+        assert r.json()["detail"]["error"] == "session_not_found"
+
+    def test_email_report_fallback_no_keys(self, clinic_checked, monkeypatch):
+        """无 API key 环境下走降级 Markdown + Resend 报错(不静默 200)。"""
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        monkeypatch.delenv("RESEND_API_KEY", raising=False)
+        r = client.post(f"/export/{clinic_checked}/email_report", json={"email": "test@example.com"})
+        assert r.status_code == 502
+        data = r.json()
+        assert data["llm_used"] is False
+        assert "markdown" in data
+        assert data["error"] == "resend_not_configured"
+        assert "## " in data["markdown"]
+
+    def test_email_report_success_with_mock(self, clinic_checked, monkeypatch):
+        """mock DeepSeek + Resend 返回成功。"""
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "fake-key")
+        monkeypatch.setenv("RESEND_API_KEY", "fake-key")
+        monkeypatch.setenv("REPORT_FROM_EMAIL", "noreply@example.com")
+
+        class FakeResp:
+            def __init__(self, status_code, json_data):
+                self.status_code = status_code
+                self._json = json_data
+                self.text = str(json_data)
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise Exception(f"HTTP {self.status_code}")
+            def json(self):
+                return self._json
+
+        class FakeClient:
+            def __init__(self, *a, **kw):
+                pass
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+            def post(self, url, **kw):
+                if "deepseek" in url:
+                    return FakeResp(200, {
+                        "choices": [{"message": {"content": "## 抬头\n测试报告\n## 总体概况\n通过"}}]
+                    })
+                if "resend" in url:
+                    return FakeResp(200, {"id": "msg-12345"})
+                return FakeResp(404, {})
+
+        monkeypatch.setattr("app.api.routes_export.httpx.Client", FakeClient)
+        r = client.post(f"/export/{clinic_checked}/email_report", json={"email": "user@example.com"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "sent"
+        assert data["llm_used"] is True
+        assert data["message_id"] == "msg-12345"
+        assert data["email"] == "user@example.com"
+
+    def test_email_report_deepseek_fail_fallback_used(self, clinic_checked, monkeypatch):
+        """DeepSeek 连续失败 → 走降级 Markdown, 仍尝试发邮件。"""
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "fake-key")
+        monkeypatch.setenv("RESEND_API_KEY", "fake-key")
+        monkeypatch.setenv("REPORT_FROM_EMAIL", "noreply@example.com")
+
+        class FakeResp500:
+            status_code = 500
+            text = "server error"
+            def raise_for_status(self):
+                raise Exception("HTTP 500")
+            def json(self):
+                return {}
+
+        class FakeClient:
+            def __init__(self, *a, **kw):
+                pass
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+            def post(self, url, **kw):
+                if "deepseek" in url:
+                    return FakeResp500()
+                if "resend" in url:
+                    class R:
+                        status_code = 200
+                        text = '{"id":"msg-fb"}'
+                        def raise_for_status(self): pass
+                        def json(self): return {"id": "msg-fb"}
+                    return R()
+                class R404:
+                    status_code = 404
+                    text = "not found"
+                    def raise_for_status(self): raise Exception("404")
+                    def json(self): return {}
+                return R404()
+
+        monkeypatch.setattr("app.api.routes_export.httpx.Client", FakeClient)
+        r = client.post(f"/export/{clinic_checked}/email_report", json={"email": "user@example.com"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "sent"
+        assert data["llm_used"] is False
+        assert data["message_id"] == "msg-fb"
+
+    def test_email_report_with_options(self, clinic_checked, monkeypatch):
+        """带 options (focus_fail_only + storey_filter) 不报错。"""
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "fake-key")
+        monkeypatch.setenv("RESEND_API_KEY", "fake-key")
+        monkeypatch.setenv("REPORT_FROM_EMAIL", "noreply@example.com")
+
+        class FakeResp:
+            def __init__(self, status_code, json_data):
+                self.status_code = status_code
+                self._json = json_data
+                self.text = str(json_data)
+            def raise_for_status(self):
+                if self.status_code >= 400:
+                    raise Exception(f"HTTP {self.status_code}")
+            def json(self):
+                return self._json
+
+        class FakeClient:
+            def __init__(self, *a, **kw):
+                pass
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+            def post(self, url, json=None, **kw):
+                if "deepseek" in url:
+                    user_msg = json["messages"][1]["content"]
+                    assert "storey_filter" in user_msg or "options" in user_msg
+                    return FakeResp(200, {"choices": [{"message": {"content": "## 抬头\n报告"}}]})
+                if "resend" in url:
+                    return FakeResp(200, {"id": "msg-opt"})
+                return FakeResp(404, {})
+
+        monkeypatch.setattr("app.api.routes_export.httpx.Client", FakeClient)
+        r = client.post(f"/export/{clinic_checked}/email_report", json={
+            "email": "user@example.com",
+            "options": {"focus_fail_only": True, "storey_filter": "Level 1"},
+        })
+        assert r.status_code == 200
+        assert r.json()["status"] == "sent"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

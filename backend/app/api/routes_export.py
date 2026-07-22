@@ -1,20 +1,28 @@
-"""路由 /export — 导出检查结果(BCF/HTML/JSON)。
+"""路由 /export — 导出检查结果(BCF/HTML/JSON) + 邮件报告。
 
 JSON 格式已实现: 完整结构化数据 + 字段说明字典, 供 CI/CD / LLM / dashboard 用。
 BCF/HTML 仍在设计阶段, 返回 501 + EXPORT_DESIGN.md 链接。
+POST /export/{sid}/email_report: DeepSeek 生成 Markdown 质检报告 → Resend 发邮件。
 
 对应 docs/EXPORT_DESIGN.md。
 """
 from __future__ import annotations
 
+import json
+import logging
+import os
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from ..core.presets import load_presets
 from ..session import get_session
+
+logger = logging.getLogger("fsb.export")
 
 router = APIRouter(tags=["export"])
 
@@ -53,6 +61,18 @@ def export_session(
 
 def _export_json(s) -> JSONResponse:
     """完整 JSON 导出 — 自包含, 含字段说明字典。"""
+    data = _build_export_data(s)
+    return JSONResponse(
+        content=data,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="fsb_export_{s.filename}.json"',
+        },
+    )
+
+
+def _build_export_data(s) -> dict[str, Any]:
+    """构建完整导出数据 dict — 被 _export_json 和 email_report 复用。"""
     presets = load_presets()
     r = s.result
     doors = r.get("doors", [])
@@ -90,7 +110,7 @@ def _export_json(s) -> JSONResponse:
 
     enriched_doors = [_enrich_door(d) for d in doors]
 
-    data: dict[str, Any] = {
+    return {
         "export_meta": {
             "exported_at": datetime.now(timezone.utc).isoformat(),
             "tool": "FSB Door Check MVP",
@@ -128,14 +148,6 @@ def _export_json(s) -> JSONResponse:
         "overrides": s.overrides,
         "field_dictionary": _field_dictionary(),
     }
-
-    return JSONResponse(
-        content=data,
-        media_type="application/json",
-        headers={
-            "Content-Disposition": f'attachment; filename="fsb_export_{s.filename}.json"',
-        },
-    )
 
 
 def _field_dictionary() -> dict[str, str]:
@@ -218,3 +230,368 @@ def _field_dictionary() -> dict[str, str]:
         "overrides[].global_id": "覆盖目标的 GlobalId (门/空间/楼层)",
         "overrides[].value": "覆盖值 (bool/int/str/object)",
     }
+
+
+# ============ Email Report ============
+
+class EmailReportOptions(BaseModel):
+    focus_fail_only: bool = False
+    storey_filter: Optional[str] = None
+
+
+class EmailReportRequest(BaseModel):
+    email: str
+    options: EmailReportOptions = Field(default_factory=EmailReportOptions)
+
+
+@router.post("/export/{sid}/email_report")
+def email_report(sid: str, body: EmailReportRequest):
+    s = get_session(sid)
+    if not s:
+        raise HTTPException(status_code=404, detail={"error": "session_not_found", "detail": sid})
+
+    summary = s.result.get("summary") or {}
+    if summary.get("total_doors", 0) == 0:
+        raise HTTPException(status_code=400, detail={
+            "error": "no_results",
+            "detail": "模型尚未完成检查，请先 Run Check",
+        })
+
+    export_data = _build_export_data(s)
+    report_input = _build_report_input(export_data, body.options)
+
+    markdown, llm_used = _generate_markdown(report_input)
+    if markdown is None:
+        raise HTTPException(status_code=502, detail={
+            "error": "report_generation_failed",
+            "detail": "DeepSeek 不可用且降级逻辑也未生成报告",
+        })
+
+    resend_result = _send_email_resend(body.email, sid, s.filename, markdown)
+    if not resend_result["ok"]:
+        return JSONResponse(status_code=502, content={
+            "status": "send_failed",
+            "email": body.email,
+            "session_id": sid,
+            "llm_used": llm_used,
+            "markdown": markdown,
+            "error": resend_result["error"],
+            "detail": resend_result["detail"],
+        })
+
+    return {
+        "status": "sent",
+        "email": body.email,
+        "session_id": sid,
+        "llm_used": llm_used,
+        "message_id": resend_result.get("message_id"),
+    }
+
+
+def _build_report_input(export_data: dict, options: EmailReportOptions) -> dict:
+    """从完整 export data 压缩成 LLM 友好的 report_input。"""
+    session = export_data.get("session", {})
+    regulation = export_data.get("regulation", {})
+    summary = export_data.get("summary") or {}
+    doors = export_data.get("doors", [])
+    overrides = export_data.get("overrides", [])
+
+    doors_filtered = doors
+    if options.storey_filter:
+        doors_filtered = [d for d in doors if d.get("storey_name") == options.storey_filter]
+
+    by_status = summary.get("by_status", {})
+
+    storey_fail: dict[str, int] = {}
+    for d in doors_filtered:
+        cr = d.get("check_result") or {}
+        if cr.get("status") == "fail":
+            sn = d.get("storey_name") or "Unknown"
+            storey_fail[sn] = storey_fail.get(sn, 0) + 1
+
+    override_counts: dict[str, int] = {}
+    use_class_overrides: list[str] = []
+    for ov in overrides:
+        t = ov.get("type", "unknown")
+        override_counts[t] = override_counts.get(t, 0) + 1
+        if t == "space_use":
+            v = ov.get("value")
+            if isinstance(v, str):
+                use_class_overrides.append(v)
+
+    fail_doors = [d for d in doors_filtered if (d.get("check_result") or {}).get("status") == "fail"]
+    fail_doors_sorted = sorted(fail_doors, key=lambda d: (d.get("check_result") or {}).get("deficit_mm") or 0, reverse=True)
+    fail_samples = []
+    for d in fail_doors_sorted[:5]:
+        cr = d.get("check_result") or {}
+        sp = d.get("related_space") or {}
+        fail_samples.append({
+            "door_id": d.get("global_id", "")[:12],
+            "name": d.get("name"),
+            "storey": d.get("storey_name"),
+            "use_class": sp.get("use_class"),
+            "capacity": cr.get("occupant_capacity"),
+            "measured_mm": cr.get("measured_mm"),
+            "threshold_mm": cr.get("threshold_mm"),
+            "deficit_mm": cr.get("deficit_mm"),
+            "is_custom_threshold": cr.get("has_threshold_override", False),
+            "reason": cr.get("reason"),
+        })
+
+    review_doors = [d for d in doors_filtered if (d.get("check_result") or {}).get("needs_human_review")]
+    review_samples = []
+    for d in review_doors[:3]:
+        cr = d.get("check_result") or {}
+        review_samples.append({
+            "door_id": d.get("global_id", "")[:12],
+            "width_source": d.get("width_source"),
+            "fire_exit_source": d.get("fire_exit_source"),
+            "is_double_leaf": d.get("is_double_leaf"),
+            "notes": cr.get("human_review_notes", []),
+        })
+
+    return {
+        "model_info": {
+            "filename": session.get("filename"),
+            "ifc_schema": session.get("ifc_schema"),
+            "counts": session.get("counts", {}),
+        },
+        "check_stats": {
+            "pass": by_status.get("pass", 0),
+            "fail": by_status.get("fail", 0),
+            "non_passage": by_status.get("non_passage", 0),
+            "needs_review": summary.get("needs_review_count", 0),
+            "total_doors": summary.get("total_doors", 0),
+        },
+        "threshold_state": {
+            "has_custom": regulation.get("custom_threshold_table") is not None,
+            "custom_bands": regulation.get("custom_threshold_table"),
+            "default_bands": regulation.get("table_b2_thresholds"),
+        },
+        "user_overrides": {
+            "counts": override_counts,
+            "use_class_types": use_class_overrides,
+        },
+        "storey_stats": storey_fail,
+        "door_samples": {
+            "fail_representatives": fail_samples,
+            "needs_review_representatives": review_samples,
+        },
+        "options": {
+            "focus_fail_only": options.focus_fail_only,
+            "storey_filter": options.storey_filter,
+        },
+    }
+
+
+# ============ DeepSeek 调用 ============
+
+_DEEPSEEK_SYSTEM_PROMPT = """你是一位建筑消防合规审查助手。根据输入的 JSON 数据，生成一份 Markdown 格式的门净宽质检报告。
+
+报告必须严格包含以下 6 个段落，每段用 ## 标题：
+1. 抬头 — 模型文件名、IFC 版本、门/空间/楼层总数、检查时间
+2. 总体概况 — pass/fail/non_passage 分布、需复核门数、通过率
+3. 规则与原因 — 本次检查依据的法规（HK FSB 2011 Table B2 + Clause B13.4）、各状态的主要原因
+4. 重点问题与典型门 — 列出 fail 代表性门（门ID/楼层/用途/人数/实测宽/阈值/缺口）、需人工复核的典型问题（宽度代理值/疏散门推断/双扇门估算）
+5. 用户修改影响 — 用户做了哪些覆盖（空间用途/人数/阈值表/防火门/勾选）、是否使用了自定义阈值
+6. 建议 — 针对当前 fail 门和复核需求的下一步行动建议
+
+要求：
+- 全中文输出（门ID、数值、字段名保持原文）
+- 总长度 800-1200 字
+- 纯 Markdown，不要包裹在代码块里
+- 数据驱动，不要空话套话
+- 如果 fail=0，在第 4 段说明"本次检查全部达标"并仍列出需复核项
+"""
+
+
+def _generate_markdown(report_input: dict) -> tuple[Optional[str], bool]:
+    """调用 DeepSeek 生成 Markdown, 最多重试 2 次。失败走降级。"""
+    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    if not api_key:
+        logger.warning("DEEPSEEK_API_KEY not set, using fallback markdown")
+        return _fallback_markdown(report_input), False
+
+    api_base = os.environ.get("DEEPSEEK_API_BASE", "https://api.deepseek.com")
+    model = os.environ.get("DEEPSEEK_MODEL_NAME", "deepseek-chat")
+    url = f"{api_base.rstrip('/')}/chat/completions"
+
+    user_content = json.dumps(report_input, ensure_ascii=False, indent=2)
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": _DEEPSEEK_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        "temperature": 0.3,
+        "max_tokens": 2048,
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    for attempt in range(3):
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                r = client.post(url, json=payload, headers=headers)
+            if r.status_code == 429:
+                logger.warning("DeepSeek 429 rate limit, attempt %d", attempt + 1)
+                if attempt < 2:
+                    continue
+                break
+            if r.status_code >= 500:
+                logger.warning("DeepSeek server error %d, attempt %d", r.status_code, attempt + 1)
+                if attempt < 2:
+                    continue
+                break
+            r.raise_for_status()
+            data = r.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if content.strip():
+                return content.strip(), True
+            logger.warning("DeepSeek returned empty content, attempt %d", attempt + 1)
+        except (httpx.TimeoutException, httpx.NetworkError) as e:
+            logger.warning("DeepSeek network error: %s, attempt %d", e, attempt + 1)
+            if attempt < 2:
+                continue
+        except Exception as e:
+            logger.warning("DeepSeek unexpected error: %s, attempt %d", e, attempt + 1)
+            if attempt < 2:
+                continue
+            break
+
+    logger.warning("DeepSeek failed after retries, using fallback markdown")
+    return _fallback_markdown(report_input), False
+
+
+def _fallback_markdown(ri: dict) -> str:
+    """纯逻辑拼接降级 Markdown — 仅总体概况 + 简短建议。"""
+    mi = ri.get("model_info", {})
+    cs = ri.get("check_stats", {})
+    ts = ri.get("threshold_state", {})
+    uo = ri.get("user_overrides", {})
+    ss = ri.get("storey_stats", {})
+    ds = ri.get("door_samples", {})
+    total = cs.get("total_doors", 0)
+    pass_n = cs.get("pass", 0)
+    fail_n = cs.get("fail", 0)
+    non_p = cs.get("non_passage", 0)
+    review_n = cs.get("needs_review", 0)
+    rate = f"{pass_n / total * 100:.1f}%" if total > 0 else "N/A"
+
+    lines = [
+        f"## 抬头",
+        f"模型: {mi.get('filename', 'unknown')} | IFC 版本: {mi.get('ifc_schema', 'unknown')} | "
+        f"门: {total} | 空间: {mi.get('counts', {}).get('spaces', '?')} | 楼层: {mi.get('counts', {}).get('storeys', '?')}",
+        f"",
+        f"## 总体概况",
+        f"PASS: {pass_n} | FAIL: {fail_n} | NON-PASSAGE: {non_p} | 需复核: {review_n} | 通过率: {rate}",
+        f"",
+        f"## 规则与原因",
+        f"依据: HK FSB 2011 (2024) Part B, Table B2 + Clause B13.4。",
+        f"FAIL 主要原因: 门实测宽度低于 Table B2 对应容量档位的阈值要求。",
+        f"NON-PASSAGE 原因: 空间被排除(厕所/走廊等)、容量未知、或宽度数据缺失。",
+        f"",
+        f"## 重点问题与典型门",
+    ]
+    fails = ds.get("fail_representatives", [])
+    if fails:
+        for f in fails[:5]:
+            lines.append(
+                f"- 门 {f.get('door_id')}: {f.get('name', '')} | 楼层 {f.get('storey', '?')} | "
+                f"用途 {f.get('use_class', '?')} | 人数 {f.get('capacity', '?')} | "
+                f"实测 {f.get('measured_mm', '?')}mm / 阈值 {f.get('threshold_mm', '?')}mm | "
+                f"缺口 {f.get('deficit_mm', '?')}mm"
+            )
+    else:
+        lines.append("本次检查无 FAIL 门。")
+
+    reviews = ds.get("needs_review_representatives", [])
+    if reviews:
+        lines.append("")
+        lines.append("需人工复核典型:")
+        for rv in reviews[:3]:
+            notes = "; ".join(rv.get("notes", [])) or "无"
+            lines.append(
+                f"- 门 {rv.get('door_id')}: width_source={rv.get('width_source', '?')}, "
+                f"fire_exit_source={rv.get('fire_exit_source', '?')}, "
+                f"is_double_leaf={rv.get('is_double_leaf', '?')} | {notes}"
+            )
+
+    lines.extend([
+        f"",
+        f"## 用户修改影响",
+    ])
+    counts = uo.get("counts", {})
+    if counts:
+        parts = [f"{k}: {v}" for k, v in counts.items()]
+        lines.append(f"覆盖操作: {', '.join(parts)}")
+        uc_types = uo.get("use_class_types", [])
+        if uc_types:
+            lines.append(f"UseClass 覆盖类型: {', '.join(uc_types)}")
+    else:
+        lines.append("本次检查未进行用户覆盖操作。")
+    if ts.get("has_custom"):
+        lines.append("使用了自定义阈值表。")
+    else:
+        lines.append("使用默认 Table B2 阈值表。")
+
+    lines.extend([
+        f"",
+        f"## 建议",
+    ])
+    if fail_n > 0:
+        lines.append(f"1. 优先处理 {fail_n} 扇 FAIL 门, 尤其是缺口最大的门。")
+    else:
+        lines.append("1. 本次检查全部达标, 但仍需关注需复核项。")
+    if review_n > 0:
+        lines.append(f"2. {review_n} 扇门需人工复核, 主要因为门宽为代理值(OverallWidth)而非实测净宽。")
+    if ss:
+        worst_storey = max(ss, key=ss.get)
+        lines.append(f"3. 楼层 {worst_storey} FAIL 门最多({ss[worst_storey]} 扇), 建议优先排查。")
+    lines.append("4. 建议现场实测 FAIL 门的实际净宽, 以代理值仅为初步筛查。")
+
+    return "\n".join(lines)
+
+
+# ============ Resend 发邮件 ============
+
+def _send_email_resend(to_email: str, sid: str, filename: str, markdown: str) -> dict:
+    """调 Resend API 发邮件, 返回 {ok, message_id?, error?, detail?}。"""
+    api_key = os.environ.get("RESEND_API_KEY")
+    if not api_key:
+        return {"ok": False, "error": "resend_not_configured", "detail": "RESEND_API_KEY 环境变量未设置"}
+
+    from_email = os.environ.get("REPORT_FROM_EMAIL")
+    if not from_email:
+        return {"ok": False, "error": "resend_not_configured", "detail": "REPORT_FROM_EMAIL 环境变量未设置"}
+
+    prefix = os.environ.get("REPORT_EMAIL_SUBJECT_PREFIX", "[FSB Door Check]")
+    subject = f"{prefix} {filename} - {sid[:8]}"
+    html_body = f"<pre style=\"font-family: monospace; font-size: 13px; white-space: pre-wrap;\">{markdown}</pre>"
+
+    payload = {
+        "from": from_email,
+        "to": [to_email],
+        "subject": subject,
+        "text": markdown,
+        "html": html_body,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            r = client.post("https://api.resend.com/emails", json=payload, headers=headers)
+        if r.status_code >= 400:
+            detail = r.text[:200]
+            logger.error("Resend error %d: %s", r.status_code, detail)
+            return {"ok": False, "error": f"resend_http_{r.status_code}", "detail": detail}
+        data = r.json()
+        return {"ok": True, "message_id": data.get("id")}
+    except (httpx.TimeoutException, httpx.NetworkError) as e:
+        logger.error("Resend network error: %s", e)
+        return {"ok": False, "error": "resend_network_error", "detail": str(e)}
+    except Exception as e:
+        logger.error("Resend unexpected error: %s", e)
+        return {"ok": False, "error": "resend_unexpected", "detail": str(e)}

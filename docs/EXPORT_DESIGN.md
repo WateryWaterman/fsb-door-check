@@ -1,8 +1,8 @@
 # 导出设计 — FSB 门净宽检查 MVP
 
-> **状态**:设计阶段,不在 MVP 实现。后端 `/export` 端点返回 501 + 本文档链接。
+> **状态**:JSON 导出 **已实现**(2026-07-22)。Markdown 质检报告 + 邮件发送 **已实现**(2026-07-22)。
+> BCF / HTML 导出仍为 501 占位,设计见下文。
 > **目的**:从"检查目的"反推导出文件应含内容,以及如何嵌入 Revit / 其它 viewer 工作流。
-> 演示视频口述本设计,体现"有思考 + 有品味"。
 
 ---
 
@@ -43,7 +43,7 @@
 
 **MVP 后实现路径**:
 - Python 库 `bcf-xdk` 或直接写 XML(BCF v2.1 是 XML)
-- 每个 fail / unknown 生成一个 Topic
+- 每个 fail / non_passage 生成一个 Topic
 - pass 不生成 Topic(避免噪音)
 
 ### 2.2 HTML 报告 — 次选
@@ -57,7 +57,7 @@
 报告封面(项目名、检查时间、检查者、模型 SHA256)
 ├── 1. 模型摘要(空间数、门数、检查门数、IFC 版本)
 ├── 2. 适用规则(Table B2 全表 + Clause 引用链接)
-├── 3. 统计摘要(pass/fail/unknown/overridden 计数 + 饼图)
+├── 3. 统计摘要(pass/fail/non_passage 计数 + 饼图)
 ├── 4. 失败门详情卡片(每个 fail 一张)
 │   ├── 门基础信息(global_id、Name、OverallWidth、width_source)
 │   ├── 关联空间(LongName、面积、capacity、capacity_source)
@@ -66,20 +66,59 @@
 │   ├── needs_human_review 标记
 │   ├── 3D 截图(标注门位置)
 │   └── 人工覆盖记录(如有)
-├── 5. 待人工复核门清单(unknown 状态)
+├── 5. 待人工复核门清单(non_passage 状态)
 └── 6. 附录:预设快照 + 覆盖历史
 ```
 
-### 2.3 JSON(机器可读)— 兜底
+### 2.3 JSON(机器可读)— ✅ 已实现
 
 **是什么**:完整结构化数据,供下游 API / CI / 二次开发用。
 
 **用途**:
 - 接 CI/CD:每次模型提交自动跑检查,JSON 结果入库
 - 接自研 dashboard:多项目汇总
-- 接 LLM:把 JSON 喂给 LLM 做合规问答
+- 接 LLM:把 JSON 喂给 LLM 做合规问答(邮件报告功能已实现此路径)
 
-**Schema**:与后端 `/check/{sid}` 返回一致,外加元信息 + 预设快照 + 覆盖历史。
+**实现**:`POST /export/{sid}?format=json` 返回自包含 JSON(浏览器直接下载)。
+
+**Schema**(自包含,约 500KB,比 `/check/{sid}` 更丰富):
+- `export_meta`:导出时间 / 工具名 / 版本号
+- `session`:文件名 / IFC 版本 / 空间数 / 门数 / 楼层数
+- `regulation`:法规预设全表(Table B1/B2)+ 自定义阈值表(如有)
+- `summary`:统计摘要(pass / fail / non\_passage 计数 + top fails)
+- `storeys`:楼层列表(含每层统计)
+- `spaces`:空间列表(含 capacity / use\_class / 来源标签)
+- `doors`:全部门(每扇内联 related\_space + check\_result)
+- `overrides`:用户覆盖历史(空间用途 / 人数 / 防火门 / 阈值 / 勾选)
+- `field_dictionary`:~61 条字段说明(含义 / 来源 / 可能取值)
+
+> **与 `/check/{sid}` 的区别**:JSON 导出是自包含的(含法规预设 + 字段字典 + 覆盖历史),
+> `/check/{sid}` 只返回检查结果(不含法规元信息和字段说明)。导出 JSON 可独立解读,无需配合其它 API。
+
+### 2.4 Markdown 质检报告(LLM 生成)— ✅ 已实现
+
+**是什么**:LLM(DeepSeek)根据检查数据生成专业 Markdown 质检报告,通过邮件发送。
+
+**实现**:`POST /export/{sid}/email_report` → 生成 Markdown → 发邮件。
+
+**流程**:
+1. `_build_report_input()` 把 JSON 导出数据压缩成 LLM 友好格式(避免 token 浪费)
+2. `_generate_markdown()` 调 DeepSeek API,system prompt 锚定 6 段式 + 800-1200 字
+3. `_fallback_markdown()` 纯逻辑降级(DeepSeek 不可用时)
+4. `_send_email_resend()` 调 Resend API 发送
+
+**报告 6 段结构**(LLM prompt 锚定):
+1. 模型概述(文件名 / IFC 版本 / 规模)
+2. 检查统计(pass / fail / non\_passage 分布)
+3. 阈值与规则适用情况
+4. 用户覆盖记录
+5. 楼层汇总
+6. 重点 fail 门详情
+
+**可选参数**:`focus_fail_only`(只报 fail 门)、`storey_filter`(按楼层过滤)
+
+**环境变量**:见 `backend/.env.example`(DEEPSEEK\_API\_KEY / RESEND\_API\_KEY / REPORT\_FROM\_EMAIL)
+**不配 key 的降级**:纯逻辑生成报告(llm\_used=false)+ 502(发不出邮件,markdown 保留在响应体)
 
 ---
 
@@ -149,7 +188,7 @@
     "inference_reason": "crosses two spaces + name contains 'exit'"
   },
   "check_result": {
-    "status": "unknown",
+    "status": "non_passage",
     "reason": "capacity<=3, Table B2 not applicable, B13.4 absolute minimum 750mm applies",
     "threshold_mm": 750,
     "threshold_source": "Clause B13.4 (absolute minimum)",
@@ -167,7 +206,7 @@
 {
   "total_doors": 254,
   "checked_doors": 87,
-  "by_status": {"pass": 60, "fail": 5, "unknown": 20, "overridden": 2},
+  "by_status": {"pass": 60, "fail": 5, "non_passage": 22},
   "top_fails": [ /* deficit_mm 降序,前 5 */ ],
   "needs_review_count": 22
 }
@@ -202,7 +241,7 @@ BCF 原生支持,直接打开 .bcfzip,无需插件。
 理论上可把检查结果作为自定义 Pset 写回 IFC:
 ```
 Pset_FireSafetyCheck:
-  - CheckStatus: enum (pass/fail/unknown/overridden)
+  - CheckStatus: enum (pass/fail/non_passage)
   - CheckRule: "HK_FSB_2011_B2"
   - CheckTime: timestamp
   - DeficitMM: number
@@ -217,14 +256,15 @@ HTML 报告作为附件直接邮件发送,适合:
 
 ---
 
-## 5. MVP 阶段做法
+## 5. 实现状态
 
-| 项 | MVP | 后续 |
+| 项 | 当前状态 | 后续 |
 |---|---|---|
-| `/export` 端点 | 返回 501 + 本文档链接 | 实现 BCF 导出 |
-| 前端"导出"按钮 | 点击弹"设计中"提示 + 文档链接 | 三种格式下拉选择 |
-| 演示视频 | 口述导出设计思路(1 句话) | 实录导出 → Revit 导入 |
-| 数据准备 | 后端 check 结果 JSON 已具备所有字段 | 加元信息 + 预设快照 + 覆盖历史 |
+| `/export/{sid}?format=json` | ✅ **已实现** — 自包含 JSON,浏览器直接下载 | 加 SHA256 + 预设快照 |
+| `/export/{sid}/email_report` | ✅ **已实现** — LLM 生成 Markdown + Resend 发邮件 | 加 HTML 格式附件 |
+| `/export/{sid}?format=bcf` | 501 占位 + 本文档 | 实现 BCF v2.1 XML 导出 |
+| `/export/{sid}?format=html` | 501 占位 + 本文档 | 实现自包含 HTML 报告 |
+| 前端"导出"按钮 | JSON 下载 + Email Report dialog | 加 BCF/HTML 下拉选择 |
 
 ---
 

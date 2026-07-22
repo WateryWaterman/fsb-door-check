@@ -3,7 +3,7 @@
 > **用途**:拍演示视频时的讲解参考。按本文的结构顺序介绍即可覆盖全部亮点。
 > 建议配合 `samples/Duplex_xeokit.ifc`(14 门,加载快)或 `samples/Clinic_Architectural_IFC2x3.ifc`(254 门,数据丰富)演示。
 
----
+***
 
 ## 一、项目是什么
 
@@ -13,21 +13,21 @@
 
 **为什么做这个**:这是香港大学 AI+BIM 技术测试题。真实场景里,消防合规检查靠人工逐门核对,大型项目动辄几百扇门,容易漏检。用 AI+BIM 自动化能省大量人工。
 
----
+***
 
 ## 二、技术栈(30 秒带过)
 
-| 层 | 技术 | 为什么选它 |
-|---|---|---|
-| 前端 | 纯 HTML + xeokit 2.6 + Alpine.js 3.14 | 无构建步骤,改完浏览器刷新即生效;xeokit 是开源 BIM viewer |
-| 后端 | Python 3.13 + FastAPI + ifcopenshell | ifcopenshell 是 IFC 解析的事实标准;FastAPI 自动生成 Swagger 文档 |
-| 渲染 | web-ifc@0.0.51 (WASM) | 浏览器内直接读 IFC 几何,无需预转换格式 |
-| 关系链 | ifcopenshell (后端 Python) | 读 IfcRelSpaceBoundary 等关系,xeokit 不擅长这个 |
-| 测试 | pytest,110 个测试 | 每个规则都有回归测试 |
+| 层   | 技术                                   | 为什么选它                                              |
+| --- | ------------------------------------ | -------------------------------------------------- |
+| 前端  | 纯 HTML + xeokit 2.6 + Alpine.js 3.14 | 无构建步骤,改完浏览器刷新即生效;xeokit 是开源 BIM viewer             |
+| 后端  | Python 3.13 + FastAPI + ifcopenshell | ifcopenshell 是 IFC 解析的事实标准;FastAPI 自动生成 Swagger 文档 |
+| 渲染  | web-ifc\@0.0.51 (WASM)               | 浏览器内直接读 IFC 几何,无需预转换格式                             |
+| 关系链 | ifcopenshell (后端 Python)             | 读 IfcRelSpaceBoundary 等关系,xeokit 不擅长这个             |
+| 测试  | pytest,115 个测试                       | 每个规则都有回归测试                                         |
 
 **核心设计 — "双结构"**:前端用 xeokit+wasm 读 IFC 的几何(负责 3D 渲染),后端用 ifcopenshell 读 IFC 的关系链(负责规则计算)。两端通过 IFC GlobalId(22 字符唯一 ID)关联同一扇门。各取所长。
 
----
+***
 
 ## 三、已实现功能 + 实现原理
 
@@ -36,6 +36,7 @@
 **做什么**:用户拖入 `.ifc` 文件,前端 3D 渲染 + 后端关系解析同时进行。
 
 **原理**:
+
 - 前端:xeokit 的 `WebIFCLoaderPlugin` 用 web-ifc WASM 直接在浏览器里解析 IFC 几何,渲染成 3D 场景
 - 后端:ifcopenshell 读取 IFC 的关系层(IfcRelSpaceBoundary 门-空间关系、IfcRelAggregates 空间层级等)
 - 两路独立,互不阻塞 —— 3D 渲染失败不影响规则计算,反之亦然
@@ -47,6 +48,7 @@
 **做什么**:每个 IfcSpace(房间)自动算出它能容纳多少人。
 
 **原理**(3 步):
+
 1. **取面积**:优先 `IfcQuantityArea.NetFloorArea` → `GSA BIM Area`(Revit 同义词)→ 几何兜底
 2. **识别用途**:用 `IfcSpace.LongName`(实测 100% 填充)做关键词匹配 → 映射到香港 Table A1 的 16 类 Use Class(如 "OFFICE" → 4a,"CLASSROOM" → 3a)
 3. **算人数**:`capacity = ceil(面积 / 因子)`。因子来自 Table B1(如 4a 办公 = 9m²/人)
@@ -60,16 +62,18 @@
 **做什么**:每扇门按 HK FSB Table B2 + Clause B13.4 检查,输出三态结果。
 
 **原理**:
+
 1. 取门宽:`IfcDoor.OverallWidth`(实测 100% 填充)作代理值(真实 ClearWidth 实测 0%)
 2. 查阈值:按关联空间的 capacity 查 Table B2(如 4-30 人需 850mm,31-200 人需 1050mm...)
 3. 比对:`measured_width >= threshold` → pass,否则 fail
 4. 边界处理:capacity≤3 用 Clause B13.4 绝对下限 750mm(Table B2 不覆盖);capacity>3000 需屋宇署个案核定
 
 **三状态系统**(不是简单的 pass/fail 二分):
-| 状态 | 含义 | 颜色 |
-|---|---|---|
-| `pass` | 门宽达标 | 深绿 |
-| `fail` | 门宽不足 | 红色 |
+
+| 状态            | 含义                       | 颜色 |
+| ------------- | ------------------------ | -- |
+| `pass`        | 门宽达标                     | 深绿 |
+| `fail`        | 门宽不足                     | 红色 |
 | `non_passage` | 不适用/无法判定(排除空间、宽度缺失、人数未知) | 灰色 |
 
 > 为什么要有 `non_passage`:厕所的门不需要查疏散宽度,强行标 fail 是误报。这个状态避免了"什么都 fail"的噪音。
@@ -79,6 +83,7 @@
 **做什么**:识别双扇门,额外校验每扇叶 ≥600mm(Clause B13.4)。
 
 **原理**:
+
 - 读 `IfcDoor.OperationType` 或经 `IsTypedBy`/`IsDefinedByType` 关联的 `IfcDoorType.OperationType`
 - 枚举值前缀为 `DOUBLE_DOOR`(如 `DOUBLE_DOOR_SINGLE_SWING`)才是真双扇门
 - **易错点**:`DOUBLE_SWING_LEFT/RIGHT` 是单扇双向摆动,不是双扇 —— 必须要求 `DOUBLE_DOOR` 前缀,不能用 `DOUBLE` 子串匹配
@@ -90,6 +95,7 @@
 **做什么**:自动推断哪些门是疏散门。
 
 **原理**(因为 `Pset_DoorCommon.FireExit` 实测 0%,只能推断):
+
 1. **跨空间**:门通过 IfcRelSpaceBoundary 关联两个空间 → 可能是疏散通道门
 2. **名字关键词**:门名含 "exit"/"corridor"/"stair" → 推断疏散
 3. **通向楼梯**:门关联的空间靠近 IfcStair → 推断疏散
@@ -102,14 +108,15 @@
 **做什么**:用户可修正自动推算的任何字段,后端立即重算受影响的门。
 
 **支持的覆盖类型**:
-| 覆盖类型 | 作用 | 示例 |
-|---|---|---|
-| `space_use` | 改空间用途 → 重算 capacity → 重算门宽阈值 | LongName 识别错了,手动改为 4a |
-| `occupancy` | 直接指定人数 | 知道某房间固定 50 人 |
-| `fire_exit` | 标记/取消防火门 | |
-| `threshold` (table) | 自定义 Table B2 阈值表 | 项目有特殊审批口径 |
-| `storey_sprinkler` | 标楼层有无喷淋 | (影响阈值,规划中) |
-| `checked` | 人工已复核标记 | 不影响计算,只做进度跟踪 |
+
+| 覆盖类型                | 作用                           | 示例                    |
+| ------------------- | ---------------------------- | --------------------- |
+| `space_use`         | 改空间用途 → 重算 capacity → 重算门宽阈值 | LongName 识别错了,手动改为 4a |
+| `occupancy`         | 直接指定人数                       | 知道某房间固定 50 人          |
+| `fire_exit`         | 标记/取消防火门                     | <br />                |
+| `threshold` (table) | 自定义 Table B2 阈值表             | 项目有特殊审批口径             |
+| `storey_sprinkler`  | 标楼层有无喷淋                      | (影响阈值,规划中)            |
+| `checked`           | 人工已复核标记                      | 不影响计算,只做进度跟踪          |
 
 **技术细节**:覆盖存在内存 session 里,后端用 `affected_results` 返回受影响的门,前端局部更新 —— 不需要全量重拉。覆盖后会保留操作历史(导出 JSON 时包含)。
 
@@ -118,10 +125,11 @@
 **做什么**:3D 模型里门按状态着色,点选门显示详情,楼层过滤,键盘导航。
 
 **交互清单**:
+
 - 点门 → 侧栏显示 Door tab(GlobalId/宽度/来源/关联空间/检查结果/判定理由)
 - 楼层下拉 → 只看该层,其他层淡显
 - 按 `F` → 跳到下一个 fail 门
-- 按 `U` → 跳到下一个 non_passage 门
+- 按 `U` → 跳到下一个 non\_passage 门
 - Results 列表 → 搜索/过滤/点行飞到 3D 对应门
 - 非门元素半透明(xray),让门突出
 
@@ -132,6 +140,7 @@
 **做什么**:每个门的 status 都有完整的推理链,用户能看懂"为什么是这个结果"。
 
 **三层追溯**:
+
 1. **来源标签**:每个推算字段都带 `*_source`(如 `width_source="overall_estimate"`,`capacity_source="table_b1_factor"`)—— 用户知道这个值怎么来的
 2. **"Why this status?" 面板**:点门后侧栏显示编号推理链,如:
    ```
@@ -146,7 +155,8 @@
 **做什么**:用户可自定义 Table B2 阈值(断点式 UI),改完全部门重算。
 
 **原理**:
-- 用户只填容量断点(30, 200, 500...),系统自动拼区间 [3,30] [31,200] [201,500] [501,∞]
+
+- 用户只填容量断点(30, 200, 500...),系统自动拼区间 \[3,30] \[31,200] \[201,500] \[501,∞]
 - 后端验证:无重叠、无缝隙、cmin≥3、末条 max=null
 - 保存后 `custom_threshold_table` 存在 session 里,`GET /presets/{sid}` 返回自定义表
 - Reset 按钮一键恢复默认 Table B2
@@ -158,17 +168,37 @@
 **做什么**:一键导出完整检查报告(JSON 格式,浏览器直接下载)。
 
 **导出内容**(自包含,约 500KB):
+
 - `export_meta`:导出时间/工具/版本
 - `session`:文件名/IFC 版本/计数
 - `regulation`:法规预设全表 + 自定义阈值表
-- `summary`:统计摘要(pass/fail/non_passage + top fails)
-- `doors`:全部门(每扇内联 related_space + check_result)
+- `summary`:统计摘要(pass/fail/non\_passage + top fails)
+- `doors`:全部门(每扇内联 related\_space + check\_result)
 - `overrides`:用户覆盖历史
 - `field_dictionary`:61 条字段说明(含义/来源/可能取值)
 
 **设计决策**:没有用 BCF(BIM Collaboration Format,XML)是因为它是 issue 交换格式,不适合 compliance report。JSON 自包含 + 字段字典,既可给人读,也可喂给 LLM/CI 做 dashboard。BCF/HTML 格式留了 501 占位 + 设计文档,体现"懂行业标准但克制"。
 
----
+### 功能 11:Markdown 质检报告 + 邮件发送(LLM 驱动)
+
+**做什么**:一键生成 Markdown 格式的质检报告并通过邮件发送给指定收件人。
+
+**原理**:
+
+1. **数据压缩**:`_build_report_input()` 把完整 JSON 导出数据压缩成 LLM 友好的格式(model_info / check_stats / threshold_state / user_overrides / storey_stats / door_samples),避免 token 浪费
+2. **LLM 生成**:`_generate_markdown()` 调 DeepSeek API,system prompt 锚定 6 段式结构 + 800-1200 字,生成专业 Markdown 报告
+3. **降级机制**:DeepSeek 不可用(无 key / 429 / 超时 / 网络错误)时,`_fallback_markdown()` 用纯逻辑生成报告(`llm_used=false`),保证功能可用
+4. **邮件发送**:`_send_email_resend()` 调 Resend API `/emails` 端点发送
+5. **容错**:Resend 失败时返回 502,但 Markdown 报告保留在响应体里(用户可复制)
+
+**前端交互**:点 "Email Report" → 弹 dialog 填收件人邮箱 + 可选 focus\_fail\_only(只报 fail 门)+ storey\_filter(按楼层过滤)→ 发送 → 显示发送结果。
+
+**环境变量**(`.env` 文件,见 `backend/.env.example`):
+- `DEEPSEEK_API_KEY` / `DEEPSEEK_API_BASE` / `DEEPSEEK_MODEL_NAME` — LLM 生成
+- `RESEND_API_KEY` / `REPORT_FROM_EMAIL` — 邮件发送
+- 不配 key → 降级纯逻辑报告 + 502(发不出邮件但报告内容可用)
+
+***
 
 ## 四、当前局限性(诚实说明)
 
@@ -186,7 +216,7 @@
 
 **影响**:双扇门的 Clause B13.4 校验(每叶≥600mm)结果不可信,只能提示人工复核。
 
-**缓解**:明确标注 `needs_human_review=True` + human_review_notes 里写"估算值,需核实实际 active/inactive leaf 宽度"。
+**缓解**:明确标注 `needs_human_review=True` + human\_review\_notes 里写"估算值,需核实实际 active/inactive leaf 宽度"。
 
 ### 局限 3:空间用途靠关键词,不是权威数据
 
@@ -206,7 +236,7 @@
 
 ### 局限 5:web-ifc 兼容性 bug
 
-**问题**:web-ifc@0.0.51-0.0.54 对 2011 Revit 导出的 IFC2x3 有 `offset is out of bounds` bug;0.0.55+ 修复但移除了 `OPTIMIZE_PROFILES` 与 xeokit 2.6.112 不兼容。
+**问题**:web-ifc\@0.0.51-0.0.54 对 2011 Revit 导出的 IFC2x3 有 `offset is out of bounds` bug;0.0.55+ 修复但移除了 `OPTIMIZE_PROFILES` 与 xeokit 2.6.112 不兼容。
 
 **影响**:`Duplex_Apartment_IFC2x3.ifc`(2011 Revit)前端 3D 渲染失败,但后端分析正常(侧栏有数据)。会显示友好错误提示。
 
@@ -232,16 +262,27 @@
 
 **缓解**:所有门默认可选取,UI 让用户手动标记/取消。推断结果带 `fire_exit_source` 标签,用户可看到依据。
 
----
+### 局限 9:缺乏方便的批量修改属性的能力
+
+**问题**:目前check仍需要极大的人工参与和判断，还不能做到批量check或者批量更改归属面积等属性。
+
+**影响**:对效率提升有限，仅能作为可视化粗略了解情况，并且unknown的门过多。
+
+**缓解**:待定。
+
+<br />
+
+***
 
 ## 五、演示建议流程(≤3 分钟)
 
 1. **加载 IFC**(15 秒):点 "Load IFC" → 选 `Duplex_xeokit.ifc` → 3D 渲染,侧栏显示 14 门
-2. **Run Check**(10 秒):点 "Run Check" → 3D 里门按 pass(绿)/fail(红)/non_passage(灰)着色
-3. **看点门**(30 秒):点一扇绿门 → 侧栏 Door tab → 看 width_source / 关联空间 / capacity / 阈值 / 判定理由。点 "Why this status?" 看推理链
-4. **改空间用途**(30 秒):Door tab 下拉改 UseClass → 看 capacity 变化 → 门颜色可能从 non_passage 变 pass
+2. **Run Check**(10 秒):点 "Run Check" → 3D 里门按 pass(绿)/fail(红)/non\_passage(灰)着色
+3. **看点门**(30 秒):点一扇绿门 → 侧栏 Door tab → 看 width\_source / 关联空间 / capacity / 阈值 / 判定理由。点 "Why this status?" 看推理链
+4. **改空间用途**(30 秒):Door tab 下拉改 UseClass → 看 capacity 变化 → 门颜色可能从 non\_passage 变 pass
 5. **阈值编辑器**(30 秒):Regulation tab → Edit Thresholds → 改一档 → Apply → 全部门重算,顶部统计变化
 6. **楼层过滤 + 键盘**(15 秒):选楼层 → 按 F 跳 fail 门
-7. **JSON 导出**(10 秒):点 JSON 按钮 → 下载文件 → 打开看 field_dictionary
+7. **JSON 导出**(10 秒):点 JSON 按钮 → 下载文件 → 打开看 field\_dictionary
+8. **邮件报告**(20 秒):点 "Email Report" → 填邮箱 → 发送 → 查看 Markdown 报告(LLM 生成的专业质检报告)
 
 **一句话收尾**:这个原型证明 AI+BIM 能自动化消防合规检查的"粗筛"环节 —— 把几百扇门里真正需要人工复核的十几扇筛出来,每扇都带完整推理链和法规引用。不是替代审图员,而是给他们一个"优先级队列"。

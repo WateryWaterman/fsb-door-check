@@ -130,4 +130,17 @@ export const api = {
     }
     return r.json();
   },
+
+  async postEmailReport(sessionId, payload) {
+    const r = await fetch(`${API_BASE}/export/${sessionId}/email_report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: r.statusText }));
+      throw new Error(err.detail || `email report failed (${r.status})`);
+    }
+    return r.json();
+  },
 };

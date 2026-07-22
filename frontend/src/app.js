@@ -36,6 +36,11 @@ window.addEventListener('alpine:init', () => {
     thrDialogRows: [],
     thrStatus: 'idle',
     thrStatusMsg: '',
+    emailDialogOpen: false,
+    emailInput: '',
+    emailFocusFailOnly: false,
+    emailStoreyFilter: '',
+    emailSending: false,
 
     init() {
       this.$nextTick(() => {
@@ -562,6 +567,53 @@ window.addEventListener('alpine:init', () => {
           this.error = e.message;
         }
       } finally {
+        this.loading = false;
+        this.loadingMsg = '';
+      }
+    },
+
+    openEmailDialog() {
+      this.emailInput = '';
+      this.emailFocusFailOnly = false;
+      this.emailStoreyFilter = '';
+      this.emailDialogOpen = true;
+      this.exportMsg = null;
+      this.$nextTick(() => {
+        const dlg = document.getElementById('emailDialog');
+        if (dlg && typeof dlg.showModal === 'function') dlg.showModal();
+      });
+    },
+
+    closeEmailDialog() {
+      this.emailDialogOpen = false;
+      const dlg = document.getElementById('emailDialog');
+      if (dlg && dlg.open) dlg.close();
+    },
+
+    async sendEmailReport() {
+      if (!this.sessionId) return;
+      const email = (this.emailInput || '').trim();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        this.error = 'Please enter a valid email address.';
+        return;
+      }
+      this.emailSending = true;
+      this.loading = true;
+      this.loadingMsg = 'Generating report and sending email...';
+      try {
+        const payload = { email };
+        const opts = {};
+        if (this.emailFocusFailOnly) opts.focus_fail_only = true;
+        if (this.emailStoreyFilter) opts.storey_filter = this.emailStoreyFilter;
+        if (Object.keys(opts).length > 0) payload.options = opts;
+        const r = await api.postEmailReport(this.sessionId, payload);
+        this.exportMsg = `报告已生成并发送到 ${email}` + (r.llm_used === false ? ' (降级模式, LLM 未使用)' : '');
+        this.exportMsgKind = 'info';
+        this.closeEmailDialog();
+      } catch (e) {
+        this.error = e.message;
+      } finally {
+        this.emailSending = false;
         this.loading = false;
         this.loadingMsg = '';
       }
